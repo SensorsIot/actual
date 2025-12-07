@@ -3,6 +3,18 @@
   "singleQuote": true,
   "trailingComma": "all",
   "arrowParens": "avoid",
-  "printWidth": 80
+  "printWidth": 80,
+  "experimentalSortImports": {
+    "enabled": true,
+    "groups": [
+      ["builtin"],
+      ["external"],
+      ["internal", "loot-core"],
+      ["parent"],
+      ["sibling"],
+      ["index"],
+    ],
+    "internalPattern": ["loot", "loot-core", "^loot(.*)", "loot-core/types/models", "^@actual-app/.*"],
+  }
 }
 
