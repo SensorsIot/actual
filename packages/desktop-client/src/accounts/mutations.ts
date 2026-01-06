@@ -797,11 +797,9 @@ export function useSyncAccountsMutation() {
     },
     onSuccess: invalidateAccountLists,
     onError: error => {
-      console.error('Error linking account to PluggyAI:', error);
+      console.error('Error syncing accounts:', error);
       dispatchErrorNotification(
-        t(
-          'There was an error linking the account to PluggyAI. Please try again.',
-        ),
+        t('There was an error syncing accounts. Please try again.'),
       );
       throw error;
     },
@@ -930,11 +928,9 @@ export function useSyncAndDownloadMutation() {
     },
     onSuccess: invalidateAccountLists,
     onError: error => {
-      console.error('Error linking account to PluggyAI:', error);
+      console.error('Error syncing accounts:', error);
       dispatchErrorNotification(
-        t(
-          'There was an error linking the account to PluggyAI. Please try again.',
-        ),
+        t('There was an error syncing accounts. Please try again.'),
       );
       throw error;
     },
