@@ -1193,6 +1193,31 @@ function getRevolutAccountNameFromCurrency(currency: string): string {
   return `Revolut ${currency.toUpperCase()}`;
 }
 
+/**
+ * Parse exchange description to extract converted amount.
+ * Examples: "Exchanged to EUR", "500.00 CHF -> 540.22 EUR"
+ */
+function parseExchangeAmount(
+  description: string,
+  originalAmount: number,
+): number | null {
+  // Try to extract "-> XXX.XX CUR" pattern
+  const match = description.match(
+    /[-→>]\s*([\d',.]+)\s*([A-Z]{3})/i,
+  );
+  if (match) {
+    const amountStr = match[1].replace(/'/g, '').replace(',', '.');
+    const amount = parseFloat(amountStr);
+    if (!isNaN(amount)) {
+      // Convert to cents and apply correct sign (opposite of original)
+      const cents = Math.round(amount * 100);
+      return originalAmount < 0 ? cents : -cents;
+    }
+  }
+  // Fallback: use inverse of original amount
+  return -originalAmount;
+}
+
 async function importRevolutTransactions({
   transactions,
   isPreview = false,
@@ -1202,13 +1227,21 @@ async function importRevolutTransactions({
   isPreview?: boolean;
   opts?: {
     defaultCleared?: boolean;
+    bankAccountName?: string; // Default: "Konto Migros 348-02"
+    cashAccountName?: string; // Default: "Kasse"
+    createTransfers?: boolean; // Default: true
   };
 }): Promise<RevolutImportResult> {
   const result: RevolutImportResult = {
     errors: [],
     accountsCreated: [],
     imported: {},
+    transfersLinked: 0,
   };
+
+  const bankAccountName = opts?.bankAccountName || 'Konto Migros 348-02';
+  const cashAccountName = opts?.cashAccountName || 'Kasse';
+  const createTransfers = opts?.createTransfers !== false;
 
   try {
     // Group transactions by currency
@@ -1226,6 +1259,14 @@ async function importRevolutTransactions({
       `Revolut import: ${transactions.length} transactions across ${currencies.length} currencies: ${currencies.join(', ')}`,
     );
 
+    // Track imported transactions with their metadata for transfer linking
+    const importedWithMeta: Array<{
+      id: string;
+      txn: RevolutImportTransaction;
+      accountId: string;
+      currency: string;
+    }> = [];
+
     // Process each currency
     for (const currency of currencies) {
       const currencyTransactions = byCurrency[currency];
@@ -1242,13 +1283,11 @@ async function importRevolutTransactions({
         accountId = existingAccount.id;
       } else {
         if (isPreview) {
-          // In preview mode, just report what would be created
           result.accountsCreated.push(accountName);
           result.imported[currency] = { added: [], updated: [] };
           continue;
         }
 
-        // Create the account
         accountId = await findOrCreateAccount(accountName, false);
         result.accountsCreated.push(accountName);
         logger.info(`Created Revolut account: ${accountName}`);
@@ -1281,9 +1320,111 @@ async function importRevolutTransactions({
         updated: reconciled.updated,
       };
 
+      // Track for transfer linking (only newly added transactions)
+      for (let i = 0; i < reconciled.added.length; i++) {
+        const txnId = reconciled.added[i];
+        // Match imported transaction by index (reconcile returns in same order)
+        const originalTxn = currencyTransactions[i];
+        if (originalTxn && txnId) {
+          importedWithMeta.push({
+            id: txnId,
+            txn: originalTxn,
+            accountId,
+            currency,
+          });
+        }
+      }
+
       logger.info(
         `Revolut ${currency}: ${reconciled.added.length} added, ${reconciled.updated.length} updated`,
       );
+    }
+
+    // Create linked transfers for transfer-type transactions
+    if (!isPreview && createTransfers && importedWithMeta.length > 0) {
+      for (const imported of importedWithMeta) {
+        const { id: txnId, txn, accountId, currency } = imported;
+        const txnType = txn.transaction_type || '';
+
+        // Determine target account based on transaction type
+        let targetAccountName: string | null = null;
+        if (txnType === 'topup' || txnType === 'swift_transfer') {
+          targetAccountName = bankAccountName;
+        } else if (txnType === 'atm') {
+          targetAccountName = cashAccountName;
+        } else if (txnType === 'exchange' && txn.transfer_account) {
+          targetAccountName = txn.transfer_account;
+        }
+
+        if (!targetAccountName) continue;
+
+        // Find or create target account
+        const targetAccount = await db.first<db.DbAccount>(
+          'SELECT id FROM accounts WHERE name = ? AND tombstone = 0',
+          [targetAccountName],
+        );
+
+        let targetAccountId: string;
+        if (targetAccount) {
+          targetAccountId = targetAccount.id;
+        } else {
+          // Create the account (off-budget for Kasse)
+          const isOffBudget = targetAccountName === cashAccountName;
+          targetAccountId = await findOrCreateAccount(
+            targetAccountName,
+            isOffBudget,
+          );
+          result.accountsCreated.push(targetAccountName);
+          logger.info(`Created transfer target account: ${targetAccountName}`);
+        }
+
+        // Calculate counter-transaction amount
+        let counterAmount: number;
+        if (txnType === 'exchange') {
+          // For exchanges, try to parse the converted amount
+          counterAmount =
+            parseExchangeAmount(
+              txn.imported_payee || txn.payee_name || '',
+              txn.amount,
+            ) || -txn.amount;
+        } else {
+          // For other transfers, counter amount is inverse
+          counterAmount = -txn.amount;
+        }
+
+        // Get the transfer payee for target account
+        const transferPayee = await db.first<{ id: string }>(
+          'SELECT id FROM payees WHERE transfer_acct = ? AND tombstone = 0',
+          [targetAccountId],
+        );
+
+        // Create counter-transaction in target account
+        const counterId = uuidv4();
+        const today = txn.date || monthUtils.currentDay();
+
+        await db.insertTransaction({
+          id: counterId,
+          account: targetAccountId,
+          amount: counterAmount,
+          payee: transferPayee?.id || null,
+          date: today,
+          notes: `[Transfer] ${txn.imported_payee || txn.payee_name || ''}`,
+          cleared: false,
+          transferred_id: txnId,
+        });
+
+        // Update original transaction with link to counter
+        await db.updateTransaction({
+          id: txnId,
+          transferred_id: counterId,
+        });
+
+        result.transfersLinked++;
+
+        logger.info(
+          `Linked transfer: ${getRevolutAccountNameFromCurrency(currency)} -> ${targetAccountName} (${counterAmount / 100} ${currency})`,
+        );
+      }
     }
 
     return result;
