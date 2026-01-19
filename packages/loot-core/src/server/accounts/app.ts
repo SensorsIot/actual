@@ -64,7 +64,13 @@ export type AccountHandlers = {
   'accounts-bank-sync': typeof accountsBankSync;
   'simplefin-batch-sync': typeof simpleFinBatchSync;
   'transactions-import': typeof importTransactions;
+  'transactions-import-revolut': typeof importRevolutTransactions;
   'account-unlink': typeof unlinkAccount;
+  // Swiss bank import features (matching Python implementation)
+  'swiss-bank-get-payee-mapping': typeof getSwissBankPayeeMapping;
+  'swiss-bank-save-payee-mapping': typeof saveSwissBankPayeeMapping;
+  'swiss-bank-learn-categories': typeof learnCategoriesFromTransactions;
+  'swiss-bank-balance-check': typeof checkAndCorrectBalance;
 };
 
 async function updateAccount({
@@ -1132,6 +1138,430 @@ async function importTransactions({
   }
 }
 
+/**
+ * Import Revolut transactions with multi-currency support.
+ * Groups transactions by currency and creates/uses separate accounts.
+ * Based on Python FSD Section 16.
+ */
+type RevolutImportTransaction = ImportTransactionEntity & {
+  currency?: string;
+  transaction_type?: string;
+  transfer_account?: string;
+};
+
+type RevolutImportResult = {
+  errors: Array<{ message: string }>;
+  accountsCreated: string[];
+  imported: Record<string, { added: string[]; updated: string[] }>;
+  transfersLinked: number;
+};
+
+async function findOrCreateAccount(
+  name: string,
+  offBudget: boolean = false,
+): Promise<AccountEntity['id']> {
+  // Check if account already exists
+  const existing = await db.first<db.DbAccount>(
+    'SELECT id FROM accounts WHERE name = ? AND tombstone = 0',
+    [name],
+  );
+
+  if (existing) {
+    return existing.id;
+  }
+
+  // Create new account
+  const id: AccountEntity['id'] = await db.insertAccount({
+    name,
+    offbudget: offBudget ? 1 : 0,
+    closed: 0,
+  });
+
+  // Create transfer payee for this account
+  await db.insertPayee({
+    name: '',
+    transfer_acct: id,
+  });
+
+  return id;
+}
+
+function getRevolutAccountNameFromCurrency(currency: string): string {
+  if (!currency || currency.toUpperCase() === 'CHF') {
+    return 'Revolut';
+  }
+  return `Revolut ${currency.toUpperCase()}`;
+}
+
+async function importRevolutTransactions({
+  transactions,
+  isPreview = false,
+  opts,
+}: {
+  transactions: RevolutImportTransaction[];
+  isPreview?: boolean;
+  opts?: {
+    defaultCleared?: boolean;
+  };
+}): Promise<RevolutImportResult> {
+  const result: RevolutImportResult = {
+    errors: [],
+    accountsCreated: [],
+    imported: {},
+  };
+
+  try {
+    // Group transactions by currency
+    const byCurrency: Record<string, RevolutImportTransaction[]> = {};
+    for (const txn of transactions) {
+      const currency = txn.currency || 'CHF';
+      if (!byCurrency[currency]) {
+        byCurrency[currency] = [];
+      }
+      byCurrency[currency].push(txn);
+    }
+
+    const currencies = Object.keys(byCurrency);
+    logger.info(
+      `Revolut import: ${transactions.length} transactions across ${currencies.length} currencies: ${currencies.join(', ')}`,
+    );
+
+    // Process each currency
+    for (const currency of currencies) {
+      const currencyTransactions = byCurrency[currency];
+      const accountName = getRevolutAccountNameFromCurrency(currency);
+
+      // Find or create account for this currency
+      const existingAccount = await db.first<db.DbAccount>(
+        'SELECT id FROM accounts WHERE name = ? AND tombstone = 0',
+        [accountName],
+      );
+
+      let accountId: AccountEntity['id'];
+      if (existingAccount) {
+        accountId = existingAccount.id;
+      } else {
+        if (isPreview) {
+          // In preview mode, just report what would be created
+          result.accountsCreated.push(accountName);
+          result.imported[currency] = { added: [], updated: [] };
+          continue;
+        }
+
+        // Create the account
+        accountId = await findOrCreateAccount(accountName, false);
+        result.accountsCreated.push(accountName);
+        logger.info(`Created Revolut account: ${accountName}`);
+      }
+
+      // Remove currency-specific fields before import
+      const cleanTransactions: ImportTransactionEntity[] =
+        currencyTransactions.map(txn => {
+          const {
+            currency: _currency,
+            transaction_type: _txnType,
+            transfer_account: _transferAcct,
+            ...clean
+          } = txn;
+          return clean;
+        });
+
+      // Import transactions to this account
+      const reconciled = await bankSync.reconcileTransactions(
+        accountId,
+        cleanTransactions,
+        false,
+        true,
+        isPreview,
+        opts?.defaultCleared,
+      );
+
+      result.imported[currency] = {
+        added: reconciled.added,
+        updated: reconciled.updated,
+      };
+
+      logger.info(
+        `Revolut ${currency}: ${reconciled.added.length} added, ${reconciled.updated.length} updated`,
+      );
+    }
+
+    return result;
+  } catch (err) {
+    if (err instanceof TransactionError) {
+      result.errors.push({ message: err.message });
+      return result;
+    }
+    throw err;
+  }
+}
+
+// =============================================================================
+// Swiss Bank Import Features (matching Python bank_csv_import.py)
+// =============================================================================
+
+/**
+ * Payee to category mapping type.
+ * Key: payee name, Value: "CategoryGroup:Category" format
+ */
+type PayeeCategoryMapping = Record<string, string>;
+
+/**
+ * Get payee-category mapping from user preferences.
+ * Stored per-account as JSON in prefs.
+ */
+async function getSwissBankPayeeMapping({
+  accountId,
+}: {
+  accountId?: AccountEntity['id'];
+}): Promise<PayeeCategoryMapping> {
+  const key = accountId
+    ? `swiss-bank-payee-mapping-${accountId}`
+    : 'swiss-bank-payee-mapping-global';
+
+  const stored = await asyncStorage.getItem(key);
+  if (stored) {
+    try {
+      return JSON.parse(stored) as PayeeCategoryMapping;
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+/**
+ * Save payee-category mapping to user preferences.
+ */
+async function saveSwissBankPayeeMapping({
+  accountId,
+  mapping,
+}: {
+  accountId?: AccountEntity['id'];
+  mapping: PayeeCategoryMapping;
+}): Promise<{ success: boolean }> {
+  const key = accountId
+    ? `swiss-bank-payee-mapping-${accountId}`
+    : 'swiss-bank-payee-mapping-global';
+
+  await asyncStorage.setItem(key, JSON.stringify(mapping));
+  logger.info(
+    `Saved ${Object.keys(mapping).length} payee-category mappings for ${key}`,
+  );
+  return { success: true };
+}
+
+/**
+ * Learn payee-category mappings from existing transactions.
+ * Matches Python: learn_categories_from_existing()
+ */
+async function learnCategoriesFromTransactions({
+  accountId,
+}: {
+  accountId?: AccountEntity['id'];
+}): Promise<{ mapping: PayeeCategoryMapping; count: number }> {
+  // Query existing transactions with categories to learn mappings
+  // SQL matches Python's query
+  const query = accountId
+    ? `
+      SELECT p.name as payee_name, cg.name || ':' || c.name as cat_name
+      FROM transactions t
+      JOIN payees p ON t.description = p.id
+      JOIN categories c ON t.category = c.id
+      JOIN category_groups cg ON c.cat_group = cg.id
+      WHERE t.tombstone = 0
+        AND t.category IS NOT NULL
+        AND t.category != ''
+        AND t.acct = ?
+      GROUP BY p.name, cat_name
+    `
+    : `
+      SELECT p.name as payee_name, cg.name || ':' || c.name as cat_name
+      FROM transactions t
+      JOIN payees p ON t.description = p.id
+      JOIN categories c ON t.category = c.id
+      JOIN category_groups cg ON c.cat_group = cg.id
+      WHERE t.tombstone = 0
+        AND t.category IS NOT NULL
+        AND t.category != ''
+      GROUP BY p.name, cat_name
+    `;
+
+  const rows = accountId
+    ? await db.all<{ payee_name: string; cat_name: string }>(query, [accountId])
+    : await db.all<{ payee_name: string; cat_name: string }>(query);
+
+  const mapping: PayeeCategoryMapping = {};
+  for (const row of rows) {
+    if (row.payee_name && row.cat_name) {
+      mapping[row.payee_name] = row.cat_name;
+    }
+  }
+
+  logger.info(
+    `Learned ${Object.keys(mapping).length} payee-category mappings from existing transactions`,
+  );
+  return { mapping, count: Object.keys(mapping).length };
+}
+
+/**
+ * Check account balance against bank saldo and create correction if needed.
+ * Matches Python: create_balance_correction()
+ */
+async function checkAndCorrectBalance({
+  accountId,
+  bankSaldo,
+  dryRun = false,
+}: {
+  accountId: AccountEntity['id'];
+  bankSaldo: number; // in cents
+  dryRun?: boolean;
+}): Promise<{
+  actualBalance: number;
+  bankSaldo: number;
+  difference: number;
+  correctionCreated: boolean;
+  correctionId?: string;
+}> {
+  // Get current account balance
+  const result = await db.first<{ balance: number }>(
+    `SELECT COALESCE(SUM(amount), 0) as balance
+     FROM transactions
+     WHERE acct = ? AND tombstone = 0`,
+    [accountId],
+  );
+
+  const actualBalance = result?.balance ?? 0;
+  const difference = bankSaldo - actualBalance;
+
+  logger.info('Swiss Bank Balance Check:');
+  logger.info(`  Bank saldo:      ${(bankSaldo / 100).toFixed(2)} CHF`);
+  logger.info(`  Actual balance:  ${(actualBalance / 100).toFixed(2)} CHF`);
+  logger.info(`  Difference:      ${(difference / 100).toFixed(2)} CHF`);
+
+  if (difference === 0) {
+    logger.info('  Status: OK - Balances match!');
+    return {
+      actualBalance,
+      bankSaldo,
+      difference,
+      correctionCreated: false,
+    };
+  }
+
+  if (dryRun) {
+    logger.info('  Status: MISMATCH - Would create correction (dry run)');
+    return {
+      actualBalance,
+      bankSaldo,
+      difference,
+      correctionCreated: false,
+    };
+  }
+
+  // Create correction transaction
+  logger.info('  Status: MISMATCH - Creating correction booking');
+
+  // Get or create "Automatische Saldokorrektur" payee
+  let payeeId: string | null = null;
+  const payeeName = 'Automatische Saldokorrektur';
+  const existingPayee = await db.first<{ id: string }>(
+    'SELECT id FROM payees WHERE name = ? AND tombstone = 0',
+    [payeeName],
+  );
+
+  if (existingPayee) {
+    payeeId = existingPayee.id;
+  } else {
+    payeeId = uuidv4();
+    await db.insertPayee({
+      id: payeeId,
+      name: payeeName,
+    });
+  }
+
+  // Find "Lebensunterhalt:Weiss nicht" category (or similar)
+  // This matches the Python implementation's correction category
+  let categoryId: string | null = null;
+  const categoryResult = await db.first<{ id: string }>(
+    `SELECT c.id
+     FROM categories c
+     JOIN category_groups cg ON c.cat_group = cg.id
+     WHERE cg.name = 'Lebensunterhalt' AND c.name = 'Weiss nicht' AND c.tombstone = 0`,
+  );
+  categoryId = categoryResult?.id ?? null;
+
+  // Create the correction transaction
+  const today = monthUtils.currentDay();
+  const correctionId = uuidv4();
+
+  await db.insertTransaction({
+    id: correctionId,
+    account: accountId,
+    amount: difference,
+    payee: payeeId,
+    category: categoryId,
+    date: today,
+    notes: `Bank: ${(bankSaldo / 100).toFixed(2)} CHF\nActual: ${(actualBalance / 100).toFixed(2)} CHF`,
+    cleared: false,
+  });
+
+  logger.info(`  Correction: ${(difference / 100).toFixed(2)} CHF booked`);
+
+  return {
+    actualBalance,
+    bankSaldo,
+    difference,
+    correctionCreated: true,
+    correctionId,
+  };
+}
+
+/**
+ * Apply payee-category mapping to a transaction.
+ * Returns category ID if mapping found, null otherwise.
+ * Supports partial matching like Python implementation.
+ */
+export async function getCategoryForPayee(
+  payeeName: string,
+  mapping: PayeeCategoryMapping,
+): Promise<string | null> {
+  if (!payeeName || !mapping) return null;
+
+  // Check direct mapping first
+  let catKey = mapping[payeeName];
+
+  // Check partial match (case-insensitive) if no direct match
+  if (!catKey) {
+    const payeeLower = payeeName.toLowerCase();
+    for (const [mappedPayee, category] of Object.entries(mapping)) {
+      if (
+        mappedPayee.toLowerCase().includes(payeeLower) ||
+        payeeLower.includes(mappedPayee.toLowerCase())
+      ) {
+        catKey = category;
+        break;
+      }
+    }
+  }
+
+  if (!catKey) return null;
+
+  // Parse "Group:Category" format and find category ID
+  const [groupName, categoryName] = catKey.split(':');
+  if (!groupName || !categoryName) return null;
+
+  const result = await db.first<{ id: string }>(
+    `SELECT c.id
+     FROM categories c
+     JOIN category_groups cg ON c.cat_group = cg.id
+     WHERE cg.name = ? AND c.name = ? AND c.tombstone = 0`,
+    [groupName, categoryName],
+  );
+
+  return result?.id ?? null;
+}
+
 async function unlinkAccount({ id }: { id: AccountEntity['id'] }) {
   const accRow = await db.first<db.DbAccount>(
     'SELECT * FROM accounts WHERE id = ?',
@@ -1238,4 +1668,16 @@ app.method('gocardless-create-web-token', createGoCardlessWebToken);
 app.method('accounts-bank-sync', accountsBankSync);
 app.method('simplefin-batch-sync', simpleFinBatchSync);
 app.method('transactions-import', mutator(undoable(importTransactions)));
+app.method(
+  'transactions-import-revolut',
+  mutator(undoable(importRevolutTransactions)),
+);
 app.method('account-unlink', mutator(unlinkAccount));
+// Swiss bank import features
+app.method('swiss-bank-get-payee-mapping', getSwissBankPayeeMapping);
+app.method('swiss-bank-save-payee-mapping', saveSwissBankPayeeMapping);
+app.method('swiss-bank-learn-categories', learnCategoriesFromTransactions);
+app.method(
+  'swiss-bank-balance-check',
+  mutator(undoable(checkAndCorrectBalance)),
+);

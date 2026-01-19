@@ -611,6 +611,79 @@ export const importTransactions = createAppAsyncThunk(
   },
 );
 
+/**
+ * Import Revolut transactions with multi-currency support.
+ * Automatically creates accounts for each currency (Revolut, Revolut EUR, etc.)
+ */
+type ImportRevolutTransactionsPayload = {
+  transactions: Array<
+    TransactionEntity & {
+      currency?: string;
+      transaction_type?: string;
+      transfer_account?: string;
+    }
+  >;
+};
+
+export const importRevolutTransactions = createAppAsyncThunk(
+  `${sliceName}/importRevolutTransactions`,
+  async ({ transactions }: ImportRevolutTransactionsPayload, { dispatch }) => {
+    const {
+      errors = [],
+      accountsCreated = [],
+      imported = {},
+    } = await send('transactions-import-revolut', {
+      transactions,
+      isPreview: false,
+    });
+
+    errors.forEach(error => {
+      dispatch(
+        addNotification({
+          notification: {
+            type: 'error',
+            message: error.message,
+          },
+        }),
+      );
+    });
+
+    // Notify about created accounts
+    if (accountsCreated.length > 0) {
+      dispatch(
+        addNotification({
+          notification: {
+            type: 'message',
+            message: `Created ${accountsCreated.length} Revolut account(s): ${accountsCreated.join(', ')}`,
+          },
+        }),
+      );
+      // Reload accounts to show the new ones
+      dispatch(reloadAccounts());
+    }
+
+    // Collect all added/updated transaction IDs
+    const allAdded: string[] = [];
+    const allUpdated: string[] = [];
+    const affectedAccountIds: string[] = [];
+
+    for (const currency of Object.keys(imported)) {
+      const { added, updated } = imported[currency];
+      allAdded.push(...added);
+      allUpdated.push(...updated);
+    }
+
+    dispatch(
+      setNewTransactions({
+        newTransactions: allAdded,
+        matchedTransactions: allUpdated,
+      }),
+    );
+
+    return allAdded.length > 0 || allUpdated.length > 0;
+  },
+);
+
 export const getAccountsById = memoizeOne(
   (accounts: AccountEntity[] | null | undefined) => groupById(accounts),
 );

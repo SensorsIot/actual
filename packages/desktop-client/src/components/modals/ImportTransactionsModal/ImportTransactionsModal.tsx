@@ -41,6 +41,7 @@ import {
 
 import {
   importPreviewTransactions,
+  importRevolutTransactions,
   importTransactions,
 } from '@desktop-client/accounts/accountsSlice';
 import {
@@ -192,6 +193,8 @@ export function ImportTransactionsModal({
   const [multiplierEnabled, setMultiplierEnabled] = useState(false);
   const [reconcile, setReconcile] = useState(true);
   const [importNotes, setImportNotes] = useState(true);
+  // Track if this is a Revolut multi-currency import
+  const [isRevolutImport, setIsRevolutImport] = useState(false);
 
   // This cannot be set after parsing the file, because changing it
   // requires re-parsing the file. This is different from the other
@@ -442,6 +445,23 @@ export function ImportTransactionsModal({
         } else {
           setFieldMappings(null);
           setParseDateFormat(null);
+        }
+
+        // Detect Revolut multi-currency import (transactions have currency field)
+        const hasMultipleCurrencies =
+          transactions.length > 0 &&
+          // @ts-expect-error - trans might have currency property from Revolut parser
+          transactions.some(trans => trans.currency);
+        setIsRevolutImport(hasMultipleCurrencies);
+
+        if (hasMultipleCurrencies) {
+          // @ts-expect-error - trans might have currency property
+          const currencies = [
+            ...new Set(transactions.map(t => t.currency || 'CHF')),
+          ];
+          console.log(
+            `Detected Revolut multi-currency import: ${currencies.join(', ')}`,
+          );
         }
 
         setParsedTransactions(transactions as ImportTransaction[]);
@@ -703,13 +723,27 @@ export function ImportTransactionsModal({
       });
     }
 
-    const didChange = await dispatch(
-      importTransactions({
-        accountId,
-        transactions: finalTransactions,
-        reconcile,
-      }),
-    ).unwrap();
+    let didChange: boolean;
+
+    if (isRevolutImport) {
+      // Use Revolut multi-currency handler
+      // This will create accounts for each currency (Revolut, Revolut EUR, etc.)
+      didChange = await dispatch(
+        importRevolutTransactions({
+          transactions: finalTransactions,
+        }),
+      ).unwrap();
+    } else {
+      // Use standard single-account import
+      didChange = await dispatch(
+        importTransactions({
+          accountId,
+          transactions: finalTransactions,
+          reconcile,
+        }),
+      ).unwrap();
+    }
+
     if (didChange) {
       await dispatch(reloadPayees());
     }

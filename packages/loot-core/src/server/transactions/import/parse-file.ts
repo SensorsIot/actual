@@ -51,6 +51,12 @@ type StructuredTransaction = {
   payee_name: string;
   imported_payee: string;
   notes: string;
+  // Multi-currency support for Revolut
+  currency?: string;
+  // Transfer target account for linking
+  transfer_account?: string;
+  // Transaction type (for Revolut: Topup, Transfer, Card Payment, etc.)
+  transaction_type?: string;
 };
 
 // CSV files return raw data that are not guaranteed to be StructuredTransactions
@@ -59,9 +65,19 @@ type CsvTransaction = Record<string, string> | string[];
 type Transaction = StructuredTransaction | CsvTransaction;
 
 type ParseError = { message: string; internal: string };
+
+// Metadata returned by Swiss bank parsers
+export type SwissBankMetadata = {
+  bankSaldo?: number; // Bank balance from CSV header (in cents)
+  bankFormat?: 'migros' | 'revolut';
+  currencies?: string[]; // For Revolut: list of currencies found
+};
+
 export type ParseFileResult = {
   errors: ParseError[];
   transactions?: Transaction[];
+  // Swiss bank specific metadata
+  metadata?: SwissBankMetadata;
 };
 
 export type SwissBankFormat = 'migros' | 'revolut' | 'auto' | null;
@@ -217,8 +233,26 @@ function getRevolutField(
 }
 
 /**
+ * Parse Swiss amount format to cents.
+ * Handles formats like: 1'234.56, -1'234.56, CHF 1'234.56
+ */
+function parseSwissAmountToCents(amountStr: string): number | null {
+  if (!amountStr) return null;
+  // Remove currency prefix and clean
+  const clean = amountStr
+    .replace(/^CHF\s*/i, '')
+    .replace(/'/g, '')
+    .replace(',', '.')
+    .trim();
+  const parsed = parseFloat(clean);
+  if (isNaN(parsed)) return null;
+  return Math.round(parsed * 100);
+}
+
+/**
  * Parse Migros Bank CSV and return structured transactions.
  * Matches the Python implementation's approach: parse raw CSV first, then find header.
+ * Also extracts bank saldo from CSV header for balance verification.
  */
 async function parseMigrosCSV(
   filepath: string,
@@ -245,6 +279,20 @@ async function parseMigrosCSV(
       internal: err.message,
     });
     return { errors, transactions: [] };
+  }
+
+  // Extract bank saldo from header (format: "Saldo:";"CHF 467459.69")
+  // Matches Python: for row in rows: if row[0] == "Saldo:": ...
+  let bankSaldo: number | undefined;
+  for (const row of allRows) {
+    if (row && row[0] === 'Saldo:') {
+      const saldoStr = row[1] || '';
+      bankSaldo = parseSwissAmountToCents(saldoStr) ?? undefined;
+      if (bankSaldo !== undefined) {
+        console.log(`Migros Bank saldo from CSV: ${bankSaldo / 100} CHF`);
+      }
+      break;
+    }
   }
 
   // Find header row (first column is "Datum")
@@ -325,11 +373,85 @@ async function parseMigrosCSV(
     } as StructuredTransaction);
   }
 
-  return { errors, transactions };
+  return {
+    errors,
+    transactions,
+    metadata: {
+      bankSaldo,
+      bankFormat: 'migros',
+    },
+  };
 }
 
 /**
- * Parse Revolut CSV and return structured transactions.
+ * Classify Revolut transaction type and detect transfer targets.
+ * Based on Python FSD Section 16.
+ */
+function classifyRevolutTransaction(
+  art: string,
+  beschreibung: string,
+  currency: string,
+): { type: string; transferAccount: string | null } {
+  const artLower = art.toLowerCase();
+  const descLower = beschreibung.toLowerCase();
+
+  // Topup: Bank -> Revolut (from "Konto Migros" or similar bank account)
+  if (artLower === 'topup' || artLower === 'top-up') {
+    // "Top-up by *XXXX" or "Payment from NAME"
+    return { type: 'topup', transferAccount: null };
+  }
+
+  // SWIFT Transfer: Revolut -> Bank
+  if (
+    artLower === 'transfer' &&
+    (descLower.includes('swift') || descLower.includes('sepa'))
+  ) {
+    return { type: 'swift_transfer', transferAccount: null };
+  }
+
+  // ATM Withdrawal: Revolut -> Cash (Kasse)
+  if (artLower === 'atm' || descLower.includes('cash withdrawal')) {
+    return { type: 'atm', transferAccount: null };
+  }
+
+  // Currency Exchange: Between Revolut currency accounts
+  if (artLower === 'exchange' || descLower.includes('exchanged')) {
+    // Extract target currency from description if possible
+    const exchangeMatch = beschreibung.match(
+      /(?:to|nach|->)\s*([A-Z]{3})/i,
+    );
+    const targetCurrency = exchangeMatch ? exchangeMatch[1].toUpperCase() : null;
+    if (targetCurrency && targetCurrency !== currency) {
+      return {
+        type: 'exchange',
+        transferAccount: `Revolut ${targetCurrency}`,
+      };
+    }
+    return { type: 'exchange', transferAccount: null };
+  }
+
+  // Regular card payment or other transaction
+  if (artLower === 'card payment' || artLower === 'kartenzahlung') {
+    return { type: 'card_payment', transferAccount: null };
+  }
+
+  return { type: 'expense', transferAccount: null };
+}
+
+/**
+ * Get Revolut account name based on currency.
+ * CHF -> "Revolut", other currencies -> "Revolut {CURRENCY}"
+ */
+export function getRevolutAccountName(currency: string): string {
+  if (!currency || currency.toUpperCase() === 'CHF') {
+    return 'Revolut';
+  }
+  return `Revolut ${currency.toUpperCase()}`;
+}
+
+/**
+ * Parse Revolut CSV and return structured transactions with currency info.
+ * Supports multi-currency import per Python FSD Section 16.
  */
 async function parseRevolutCSV(
   filepath: string,
@@ -360,9 +482,13 @@ async function parseRevolutCSV(
   const transactions: StructuredTransaction[] = [];
 
   for (const row of data) {
-    // Skip pending/reverted transactions
+    // Skip pending/reverted transactions (like Python: only COMPLETED)
     const status = getRevolutField(row, 'State', 'Status');
-    if (status === 'PENDING' || status === 'REVERTED') {
+    if (
+      status &&
+      status !== 'COMPLETED' &&
+      status !== 'ABGESCHLOSSEN'
+    ) {
       continue;
     }
 
@@ -386,6 +512,13 @@ async function parseRevolutCSV(
     const cleanAmount = betrag.replace(/'/g, '').replace(',', '.');
     const amount = looselyParseAmount(cleanAmount);
 
+    // Classify transaction type and detect transfers
+    const { type: txnType, transferAccount } = classifyRevolutTransaction(
+      art,
+      beschreibung,
+      currency,
+    );
+
     // Use start date for unique ID
     const startDateStr = getRevolutField(
       row,
@@ -397,7 +530,7 @@ async function parseRevolutCSV(
       .replace(/:/g, '')
       .slice(0, 50);
 
-    // Build notes
+    // Build notes with transaction type info
     const notesParts: string[] = [];
     if (art) notesParts.push(`[${art}]`);
     if (currency && currency !== 'CHF') {
@@ -413,11 +546,31 @@ async function parseRevolutCSV(
       payee_name: beschreibung,
       imported_payee: beschreibung,
       notes: options.importNotes ? notesParts.join('\n') : '',
+      // Multi-currency support
+      currency: currency || 'CHF',
+      transaction_type: txnType,
+      transfer_account: transferAccount,
       ...(uniqueId && { imported_id: uniqueId }),
     } as StructuredTransaction);
   }
 
-  return { errors, transactions };
+  // Collect unique currencies found
+  const currencies = [
+    ...new Set(
+      transactions
+        .map(t => (t as StructuredTransaction).currency)
+        .filter(Boolean),
+    ),
+  ];
+
+  return {
+    errors,
+    transactions,
+    metadata: {
+      bankFormat: 'revolut',
+      currencies: currencies as string[],
+    },
+  };
 }
 
 export async function parseFile(
