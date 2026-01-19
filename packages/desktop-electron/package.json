@@ -103,21 +103,9 @@
         }
       ],
       "icon": "icons/icon.png",
-      "artifactName": "${productName}-windows-${arch}.${ext}",
-      "executableName": "ActualBudget"
-    },
-    "appx": {
-      "identityName": "actualbudget.org.ActualBudget",
-      "publisherDisplayName": "actualbudget.org",
-      "displayName": "Actual Budget",
-      "publisher": "CN=19454997-90E1-4473-879D-96D6A77A6056"
-    },
-    "nsis": {
-      "oneClick": true,
-      "perMachine": false,
-      "deleteAppDataOnUninstall": false
+      "artifactName": "${productName}-windows-${arch}.${ext}"
     },
     "npmRebuild": false
   },
-  "productName": "ActualBudget"
+  "productName": "Actual"
 }
