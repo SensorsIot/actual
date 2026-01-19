@@ -1,0 +1,42 @@
+name: Build Windows Desktop
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CI: true
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python setuptools
+        run: pip.exe install setuptools
+
+      - name: Set up environment
+        uses: ./.github/actions/setup
+
+      - name: Build Electron for Windows
+        run: ./bin/package-electron
+
+      - name: Upload Windows Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: actual-windows-desktop
+          path: |
+            packages/desktop-electron/dist/*.exe
+            !packages/desktop-electron/dist/Actual-windows.exe
+          retention-days: 30
