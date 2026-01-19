@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { captureException } from '../../platform/exceptions';
 import * as asyncStorage from '../../platform/server/asyncStorage';
+import * as fs from '../../platform/server/fs';
 import * as connection from '../../platform/server/connection';
 import { logger } from '../../platform/server/log';
 import { isNonProductionEnvironment } from '../../shared/environment';
@@ -30,6 +31,7 @@ import {
 import { app as mainApp } from '../main-app';
 import { mutator } from '../mutators';
 import { get, post } from '../post';
+import * as prefs from '../prefs';
 import { getServer } from '../server-config';
 import { batchMessages } from '../sync';
 import { undoable, withUndo } from '../undo';
@@ -1451,62 +1453,53 @@ type PayeeCategoryMapping = Record<string, string>;
  * Get the file path for payee-category mapping storage.
  * Stored in budget directory as JSON file (like Python's payee_category_mapping.json)
  */
-function getPayeeMappingFilePath(accountId?: string): string {
-  const budgetDir = process.env.ACTUAL_BUDGET_DIR || '.';
-  const filename = accountId
-    ? `payee_category_mapping_${accountId}.json`
-    : 'payee_category_mapping.json';
-  return `${budgetDir}/${filename}`;
+function getPayeeMappingFilePath(): string {
+  const budgetDir = prefs.getPrefs()?.id
+    ? fs.getBudgetDir(prefs.getPrefs().id)
+    : '.';
+  return fs.join(budgetDir, 'payee_category_mapping.json');
 }
 
 /**
- * Get payee-category mapping from file storage.
- * Stored per-account or globally as JSON file.
+ * Get payee-category mapping from JSON file in budget directory.
+ * Matches Python implementation: payee_category_mapping.json
  */
 async function getSwissBankPayeeMapping({
-  accountId,
+  accountId: _accountId,
 }: {
   accountId?: AccountEntity['id'];
 }): Promise<PayeeCategoryMapping> {
   try {
-    // Try to get from database first (custom prefs table)
-    const result = await db.first<{ value: string }>(
-      `SELECT value FROM __meta__ WHERE key = ?`,
-      [accountId ? `payee-mapping-${accountId}` : 'payee-mapping-global'],
-    );
-
-    if (result?.value) {
-      return JSON.parse(result.value) as PayeeCategoryMapping;
+    const filePath = getPayeeMappingFilePath();
+    const content = await fs.readFile(filePath);
+    if (content) {
+      return JSON.parse(content) as PayeeCategoryMapping;
     }
   } catch {
-    // Table might not exist or be empty
+    // File doesn't exist or can't be read
+    logger.info('No payee_category_mapping.json found, using empty mapping');
   }
 
   return {};
 }
 
 /**
- * Save payee-category mapping to database.
+ * Save payee-category mapping to JSON file in budget directory.
+ * Matches Python implementation: payee_category_mapping.json
  */
 async function saveSwissBankPayeeMapping({
-  accountId,
+  accountId: _accountId,
   mapping,
 }: {
   accountId?: AccountEntity['id'];
   mapping: PayeeCategoryMapping;
 }): Promise<{ success: boolean }> {
-  const key = accountId ? `payee-mapping-${accountId}` : 'payee-mapping-global';
-
   try {
-    // Try to insert or update in __meta__ table
-    await db.runQuery(
-      `INSERT OR REPLACE INTO __meta__ (key, value) VALUES (?, ?)`,
-      [key, JSON.stringify(mapping)],
-      false,
-    );
+    const filePath = getPayeeMappingFilePath();
+    await fs.writeFile(filePath, JSON.stringify(mapping, null, 2));
 
     logger.info(
-      `Saved ${Object.keys(mapping).length} payee-category mappings for ${key}`,
+      `Saved ${Object.keys(mapping).length} payee-category mappings to ${filePath}`,
     );
     return { success: true };
   } catch (err) {

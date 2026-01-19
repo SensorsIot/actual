@@ -37,6 +37,7 @@ type TransactionProps = {
   categories: CategoryEntity[];
   onCheckTransaction: (transactionId: string) => void;
   reconcile: boolean;
+  showStatus?: boolean; // Show duplicate/new status column
 };
 
 export function Transaction({
@@ -53,6 +54,7 @@ export function Transaction({
   categories,
   onCheckTransaction,
   reconcile,
+  showStatus = false,
 }: TransactionProps) {
   const { t } = useTranslation();
 
@@ -228,6 +230,34 @@ export function Transaction({
           categoryList.includes(transaction.category) &&
           transaction.category}
       </Field>
+      {showStatus && !transaction.isMatchedTransaction && (
+        <Field
+          width={80}
+          contentStyle={{
+            textAlign: 'center',
+            fontWeight: 500,
+            fontSize: '0.85em',
+            color: transaction.existing
+              ? theme.warningText
+              : transaction.ignored
+                ? theme.pageTextSubdued
+                : theme.noticeText,
+          }}
+          title={
+            transaction.existing
+              ? t('This transaction matches an existing one and will update it')
+              : transaction.ignored
+                ? t('Already imported - will be skipped')
+                : t('New transaction')
+          }
+        >
+          {transaction.existing
+            ? t('Update')
+            : transaction.ignored
+              ? t('Duplicate')
+              : t('New')}
+        </Field>
+      )}
       {inOutMode && (
         <Field
           width={90}

@@ -195,6 +195,8 @@ export function ImportTransactionsModal({
   const [importNotes, setImportNotes] = useState(true);
   // Track if this is a Revolut multi-currency import
   const [isRevolutImport, setIsRevolutImport] = useState(false);
+  // Track if this is a Swiss bank import (Migros or Revolut) - hide CSV options
+  const [isSwissBankImport, setIsSwissBankImport] = useState(false);
 
   // This cannot be set after parsing the file, because changing it
   // requires re-parsing the file. This is different from the other
@@ -381,13 +383,17 @@ export function ImportTransactionsModal({
       setFilename(filename);
       setFileType(filetype);
 
-      const { errors, transactions: parsedTransactions = [] } = await send(
+      const { errors, transactions: parsedTransactions = [], metadata } = await send(
         'transactions-parse-file',
         {
           filepath: filename,
           options,
         },
       );
+
+      // Detect Swiss bank format (Migros or Revolut) from metadata
+      const swissBankFormat = metadata?.bankFormat;
+      setIsSwissBankImport(!!swissBankFormat);
 
       let index = 0;
       const transactions = parsedTransactions.map(trans => {
@@ -812,6 +818,11 @@ export function ImportTransactionsModal({
   if (reconcile) {
     headers.unshift({ name: ' ', width: 31 });
   }
+
+  // Add status column for Swiss bank imports to show duplicate indicator
+  if (isSwissBankImport) {
+    headers.push({ name: t('Status'), width: 80 });
+  }
   if (inOutMode) {
     headers.push({
       name: t('In/Out'),
@@ -913,6 +924,7 @@ export function ImportTransactionsModal({
                       categories={categories.list}
                       onCheckTransaction={onCheckTransaction}
                       reconcile={reconcile}
+                      showStatus={isSwissBankImport}
                     />
                   </View>
                 )}
@@ -938,7 +950,7 @@ export function ImportTransactionsModal({
             </View>
           )}
 
-          {filetype === 'csv' && (
+          {filetype === 'csv' && !isSwissBankImport && (
             <View style={{ marginTop: 10 }}>
               <FieldMappings
                 transactions={transactions}
@@ -987,8 +999,8 @@ export function ImportTransactionsModal({
             </LabeledCheckbox>
           )}
 
-          {/*Import Options */}
-          {(filetype === 'qif' || filetype === 'csv') && (
+          {/*Import Options - hidden for Swiss bank imports */}
+          {(filetype === 'qif' || filetype === 'csv') && !isSwissBankImport && (
             <View style={{ marginTop: 10 }}>
               <SpaceBetween
                 gap={5}
