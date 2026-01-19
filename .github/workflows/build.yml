@@ -96,3 +96,22 @@ jobs:
         with:
           name: sync-server
           path: packages/sync-server/build
+
+  windows-desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Install Python setuptools
+        run: pip.exe install setuptools
+      - name: Set up environment
+        uses: ./.github/actions/setup
+      - name: Build Electron for Windows
+        run: ./bin/package-electron --skip-translations
+      - name: Upload Windows Build
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: actual-windows-desktop
+          path: |
+            packages/desktop-electron/dist/*.exe
+            !packages/desktop-electron/dist/Actual-windows.exe
+          retention-days: 30
