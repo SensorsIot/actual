@@ -1,4 +1,4 @@
-# Sample Data
+# Sample Data & Financial Exports
 /data/*
 !data/.gitkeep
 /data2
@@ -6,6 +6,32 @@ Actual-*
 !actual-server.js
 **/xcuserdata/*
 export-2020-01-10.csv
+
+# Financial/Accounting Data
+*.csv
+*.ofx
+*.qfx
+*.qif
+!packages/**/test*/**/*.csv
+!packages/**/fixtures/**/*.csv
+bookings-export*.csv
+account-statement*.csv
+
+# Secrets & Credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+credentials.json
+secrets.json
+**/secrets/
+*.secret
+
+# Personal Documentation
+/docs/*
+!docs/.gitkeep
 
 # MacOS
 .DS_Store

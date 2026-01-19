@@ -159,10 +159,10 @@ export function BudgetVsActualCard({
                     format(data.totalVariance, 'financial')}
                 </PrivacyFilter>
               </Block>
-              <Block style={{ ...styles.smallText, color: theme.pageTextLight }}>
-                {data.totalVariance >= 0
-                  ? t('under budget')
-                  : t('over budget')}
+              <Block
+                style={{ ...styles.smallText, color: theme.pageTextLight }}
+              >
+                {data.totalVariance >= 0 ? t('under budget') : t('over budget')}
               </Block>
             </View>
           )}

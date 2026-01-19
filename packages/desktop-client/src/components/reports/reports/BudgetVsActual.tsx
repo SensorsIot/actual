@@ -89,9 +89,10 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
     widget?.meta?.conditionsOp,
   );
 
-  const [allMonths, setAllMonths] = useState<
-    Array<{ name: string; pretty: string }> | null
-  >(null);
+  const [allMonths, setAllMonths] = useState<Array<{
+    name: string;
+    pretty: string;
+  }> | null>(null);
 
   const [start, setStart] = useState(monthUtils.currentMonth());
   const [end, setEnd] = useState(monthUtils.currentMonth());

@@ -338,7 +338,7 @@ async function parseRevolutCSV(
   const errors = Array<ParseError>();
   const contents = await fs.readFile(filepath);
 
-  let data: ReturnType<typeof csv2json>;
+  let data: Record<string, string>[];
   try {
     data = csv2json(contents, {
       columns: true,
@@ -348,7 +348,7 @@ async function parseRevolutCSV(
       trim: true,
       relax_column_count: true,
       skip_empty_lines: true,
-    });
+    }) as Record<string, string>[];
   } catch (err) {
     errors.push({
       message: 'Failed parsing Revolut CSV: ' + err.message,
@@ -367,7 +367,11 @@ async function parseRevolutCSV(
     }
 
     // Use completion date for transaction date
-    const dateStr = getRevolutField(row, 'Completed Date', 'Datum des Abschlusses');
+    const dateStr = getRevolutField(
+      row,
+      'Completed Date',
+      'Datum des Abschlusses',
+    );
     if (!dateStr) continue;
 
     const beschreibung = getRevolutField(row, 'Description', 'Beschreibung');
@@ -383,7 +387,11 @@ async function parseRevolutCSV(
     const amount = looselyParseAmount(cleanAmount);
 
     // Use start date for unique ID
-    const startDateStr = getRevolutField(row, 'Started Date', 'Datum des Beginns');
+    const startDateStr = getRevolutField(
+      row,
+      'Started Date',
+      'Datum des Beginns',
+    );
     const uniqueId = `REV_${currency}_${startDateStr}_${betrag}`
       .replace(/\s+/g, '_')
       .replace(/:/g, '')

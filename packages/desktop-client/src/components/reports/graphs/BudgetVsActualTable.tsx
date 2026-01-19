@@ -121,7 +121,9 @@ export function BudgetVsActualTable({
                 </PrivacyFilter>
               </Cell>
               <Cell width={amountWidth} plain style={{ textAlign: 'right' }}>
-                <PrivacyFilter>{format(group.actual, 'financial')}</PrivacyFilter>
+                <PrivacyFilter>
+                  {format(group.actual, 'financial')}
+                </PrivacyFilter>
               </Cell>
               <Cell
                 width={amountWidth}
@@ -158,12 +160,20 @@ export function BudgetVsActualTable({
                   <Cell width={categoryWidth} plain>
                     <View style={{ paddingLeft: 20 }}>{category.name}</View>
                   </Cell>
-                  <Cell width={amountWidth} plain style={{ textAlign: 'right' }}>
+                  <Cell
+                    width={amountWidth}
+                    plain
+                    style={{ textAlign: 'right' }}
+                  >
                     <PrivacyFilter>
                       {format(category.budgeted, 'financial')}
                     </PrivacyFilter>
                   </Cell>
-                  <Cell width={amountWidth} plain style={{ textAlign: 'right' }}>
+                  <Cell
+                    width={amountWidth}
+                    plain
+                    style={{ textAlign: 'right' }}
+                  >
                     <PrivacyFilter>
                       {format(category.actual, 'financial')}
                     </PrivacyFilter>
