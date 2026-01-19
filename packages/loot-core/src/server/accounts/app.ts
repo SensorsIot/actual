@@ -1448,31 +1448,45 @@ async function importRevolutTransactions({
 type PayeeCategoryMapping = Record<string, string>;
 
 /**
- * Get payee-category mapping from user preferences.
- * Stored per-account as JSON in prefs.
+ * Get the file path for payee-category mapping storage.
+ * Stored in budget directory as JSON file (like Python's payee_category_mapping.json)
+ */
+function getPayeeMappingFilePath(accountId?: string): string {
+  const budgetDir = process.env.ACTUAL_BUDGET_DIR || '.';
+  const filename = accountId
+    ? `payee_category_mapping_${accountId}.json`
+    : 'payee_category_mapping.json';
+  return `${budgetDir}/${filename}`;
+}
+
+/**
+ * Get payee-category mapping from file storage.
+ * Stored per-account or globally as JSON file.
  */
 async function getSwissBankPayeeMapping({
   accountId,
 }: {
   accountId?: AccountEntity['id'];
 }): Promise<PayeeCategoryMapping> {
-  const key = accountId
-    ? `swiss-bank-payee-mapping-${accountId}`
-    : 'swiss-bank-payee-mapping-global';
+  try {
+    // Try to get from database first (custom prefs table)
+    const result = await db.first<{ value: string }>(
+      `SELECT value FROM __meta__ WHERE key = ?`,
+      [accountId ? `payee-mapping-${accountId}` : 'payee-mapping-global'],
+    );
 
-  const stored = await asyncStorage.getItem(key);
-  if (stored) {
-    try {
-      return JSON.parse(stored) as PayeeCategoryMapping;
-    } catch {
-      return {};
+    if (result?.value) {
+      return JSON.parse(result.value) as PayeeCategoryMapping;
     }
+  } catch {
+    // Table might not exist or be empty
   }
+
   return {};
 }
 
 /**
- * Save payee-category mapping to user preferences.
+ * Save payee-category mapping to database.
  */
 async function saveSwissBankPayeeMapping({
   accountId,
@@ -1481,15 +1495,24 @@ async function saveSwissBankPayeeMapping({
   accountId?: AccountEntity['id'];
   mapping: PayeeCategoryMapping;
 }): Promise<{ success: boolean }> {
-  const key = accountId
-    ? `swiss-bank-payee-mapping-${accountId}`
-    : 'swiss-bank-payee-mapping-global';
+  const key = accountId ? `payee-mapping-${accountId}` : 'payee-mapping-global';
 
-  await asyncStorage.setItem(key, JSON.stringify(mapping));
-  logger.info(
-    `Saved ${Object.keys(mapping).length} payee-category mappings for ${key}`,
-  );
-  return { success: true };
+  try {
+    // Try to insert or update in __meta__ table
+    await db.runQuery(
+      `INSERT OR REPLACE INTO __meta__ (key, value) VALUES (?, ?)`,
+      [key, JSON.stringify(mapping)],
+      false,
+    );
+
+    logger.info(
+      `Saved ${Object.keys(mapping).length} payee-category mappings for ${key}`,
+    );
+    return { success: true };
+  } catch (err) {
+    logger.error('Failed to save payee mapping:', err);
+    return { success: false };
+  }
 }
 
 /**
