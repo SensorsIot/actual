@@ -237,25 +237,17 @@ export function Transaction({
             textAlign: 'center',
             fontWeight: 500,
             fontSize: '0.85em',
-            color: transaction.existing
-              ? theme.warningText
-              : transaction.ignored
-                ? theme.pageTextSubdued
-                : theme.noticeText,
+            color: transaction.ignored
+              ? theme.errorText
+              : theme.noticeText,
           }}
           title={
-            transaction.existing
-              ? t('This transaction matches an existing one and will update it')
-              : transaction.ignored
-                ? t('Already imported - will be skipped')
-                : t('New transaction')
+            transaction.ignored
+              ? t('Already imported - will be skipped')
+              : t('New transaction')
           }
         >
-          {transaction.existing
-            ? t('Update')
-            : transaction.ignored
-              ? t('Duplicate')
-              : t('New')}
+          {transaction.ignored ? t('Duplicate') : t('New')}
         </Field>
       )}
       {inOutMode && (
