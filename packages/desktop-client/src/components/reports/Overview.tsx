@@ -27,6 +27,7 @@ import { NON_DRAGGABLE_AREA_CLASS_NAME } from './constants';
 import { DashboardHeader } from './DashboardHeader';
 import { DashboardSelector } from './DashboardSelector';
 import { LoadingIndicator } from './LoadingIndicator';
+import { BudgetVsActualCard } from './reports/BudgetVsActualCard';
 import { CalendarCard } from './reports/CalendarCard';
 import { CashFlowCard } from './reports/CashFlowCard';
 import { CrossoverCard } from './reports/CrossoverCard';
@@ -510,6 +511,10 @@ export function Overview({ dashboard }: OverviewProps) {
                               text: t('Spending analysis'),
                             },
                             {
+                              name: 'budget-vs-actual-card' as const,
+                              text: t('Budget vs Actual'),
+                            },
+                            {
                               name: 'markdown-card' as const,
                               text: t('Text widget'),
                             },
@@ -694,6 +699,17 @@ export function Overview({ dashboard }: OverviewProps) {
                     />
                   ) : item.type === 'spending-card' ? (
                     <SpendingCard
+                      widgetId={item.i}
+                      isEditing={isEditing}
+                      meta={item.meta}
+                      onMetaChange={newMeta => onMetaChange(item, newMeta)}
+                      onRemove={() => onRemoveWidget(item.i)}
+                      onCopy={targetDashboardId =>
+                        onCopyWidget(item.i, targetDashboardId)
+                      }
+                    />
+                  ) : item.type === 'budget-vs-actual-card' ? (
+                    <BudgetVsActualCard
                       widgetId={item.i}
                       isEditing={isEditing}
                       meta={item.meta}

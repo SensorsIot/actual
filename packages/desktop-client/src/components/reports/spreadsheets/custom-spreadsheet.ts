@@ -257,7 +257,7 @@ export function createCustomSpreadsheet({
     );
 
     const calcData: GroupedEntity[] = groupByList.map(item => {
-      const calc = recalculate({
+      return recalculate({
         item,
         intervals,
         assets,
@@ -269,7 +269,6 @@ export function createCustomSpreadsheet({
         startDate,
         endDate,
       });
-      return { ...calc };
     });
 
     // First, filter rows so trimming reflects the visible dataset

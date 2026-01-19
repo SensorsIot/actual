@@ -356,7 +356,9 @@ export const ReportTableRow = memo(
               fontWeight: 600,
               minWidth: compact ? 50 : 85,
               backgroundColor: style?.backgroundColor,
-              ...(colorized && { color: getAmountColor(average) }),
+              ...(colorized && {
+                color: getAmountColor(average),
+              }),
             }}
             valueStyle={compactStyle}
             width="flex"

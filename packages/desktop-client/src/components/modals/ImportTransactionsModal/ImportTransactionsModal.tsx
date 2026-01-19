@@ -16,7 +16,10 @@ import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
 import { send } from 'loot-core/platform/client/fetch';
-import { type ParseFileOptions } from 'loot-core/server/transactions/import/parse-file';
+import {
+  type ParseFileOptions,
+  type SwissBankFormat,
+} from 'loot-core/server/transactions/import/parse-file';
 import { amountToInteger } from 'loot-core/shared/util';
 
 import { DateFormatSelect } from './DateFormatSelect';
@@ -1168,7 +1171,14 @@ export function ImportTransactionsModal({
 function getParseOptions(fileType: string, options: ParseFileOptions = {}) {
   if (fileType === 'csv') {
     const { delimiter, hasHeaderRow, skipStartLines, skipEndLines } = options;
-    return { delimiter, hasHeaderRow, skipStartLines, skipEndLines };
+    // Enable auto-detection of Swiss bank formats (Migros Bank, Revolut)
+    return {
+      delimiter,
+      hasHeaderRow,
+      skipStartLines,
+      skipEndLines,
+      swissBankFormat: 'auto' as const,
+    };
   }
   if (isOfxFile(fileType)) {
     const { fallbackMissingPayeeToMemo, importNotes } = options;

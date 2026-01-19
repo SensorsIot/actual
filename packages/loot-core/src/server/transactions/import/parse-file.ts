@@ -64,6 +64,8 @@ export type ParseFileResult = {
   transactions?: Transaction[];
 };
 
+export type SwissBankFormat = 'migros' | 'revolut' | 'auto' | null;
+
 export type ParseFileOptions = {
   hasHeaderRow?: boolean;
   delimiter?: string;
@@ -71,7 +73,344 @@ export type ParseFileOptions = {
   skipStartLines?: number;
   skipEndLines?: number;
   importNotes?: boolean;
+  swissBankFormat?: SwissBankFormat;
 };
+
+/**
+ * Detect Swiss bank CSV format based on header row.
+ * Returns 'migros', 'revolut', or null if not a recognized format.
+ */
+export function detectSwissBankFormat(contents: string): SwissBankFormat {
+  // Remove BOM if present
+  const cleanContents = contents.replace(/^\uFEFF/, '');
+  const lines = cleanContents.split(/\r?\n/);
+
+  // Check first line for Revolut format
+  const firstLine = lines[0] || '';
+  const firstLineLower = firstLine.toLowerCase();
+
+  // Revolut: starts with "Art,Produkt," (German) or "Type,Product," (English)
+  if (
+    firstLineLower.startsWith('art,produkt,') ||
+    firstLineLower.startsWith('type,product,')
+  ) {
+    return 'revolut';
+  }
+
+  // Migros Bank: Check first 15 lines for header row with "Datum" and semicolon delimiter
+  // Migros CSVs have metadata lines before the actual header
+  for (let i = 0; i < Math.min(15, lines.length); i++) {
+    const line = lines[i];
+    const lineLower = line.toLowerCase();
+    // Look for the header row: "Datum";"Buchungstext"... or Datum;Buchungstext...
+    if (
+      lineLower.includes('"datum"') ||
+      (lineLower.startsWith('datum') && line.includes(';'))
+    ) {
+      return 'migros';
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Extract TWINT ID (16-digit number) from Buchungstext if present.
+ */
+function extractTwintId(buchungstext: string): string | null {
+  const match = buchungstext.match(/(\d{16})/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Extract payee name from Migros Bank Buchungstext.
+ * Handles TWINT patterns and standard company/address format.
+ */
+function extractPayeeFromBuchungstext(buchungstext: string): string {
+  const text = buchungstext.trim();
+
+  // TWINT Gutschrift: Extract name before phone number
+  if (text.startsWith('TWINT Gutschrift')) {
+    // Pattern: "TWINT Gutschrift Name, Vorname, +41..."
+    const match1 = text.match(/TWINT Gutschrift\s+(.+?),\s*\+\d+/);
+    if (match1) {
+      return match1[1].trim();
+    }
+    // Fallback: take everything after "TWINT Gutschrift" until the ID
+    const match2 = text.match(/TWINT Gutschrift\s+(.+?)\s+\d{10,}/);
+    if (match2) {
+      return match2[1].trim().replace(/,$/, '');
+    }
+  }
+
+  // TWINT Belastung: Extract store name
+  if (text.startsWith('TWINT Belastung')) {
+    // Pattern: "TWINT Belastung {Code} - {Store} {ID}"
+    const match1 = text.match(/TWINT Belastung\s+\d+\s*-\s*(.+?)\s+\d{10,}/);
+    if (match1) {
+      return match1[1].trim();
+    }
+    // Pattern: "TWINT Belastung {Store} {ID}" (no code)
+    const match2 = text.match(/TWINT Belastung\s+(.+?)\s+\d{10,}/);
+    if (match2) {
+      let name = match2[1].trim();
+      // Remove store codes like "Coop-1167"
+      name = name.replace(/^(Coop)-?\d+\s*/, '$1 ');
+      return name.trim();
+    }
+  }
+
+  // Standard: Company/Person, Address format - take first part before comma
+  if (text.includes(',')) {
+    return text.split(',')[0].trim();
+  }
+
+  // Fallback: return full text (truncated)
+  return text.slice(0, 50).trim();
+}
+
+/**
+ * Parse Swiss date format (DD.MM.YYYY) to YYYY-MM-DD
+ */
+function parseSwissDate(dateStr: string): string {
+  const trimmed = dateStr.trim();
+  // DD.MM.YYYY format
+  const match = trimmed.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/);
+  if (match) {
+    const day = match[1].padStart(2, '0');
+    const month = match[2].padStart(2, '0');
+    let year = match[3];
+    if (year.length === 2) {
+      year = parseInt(year) > 50 ? `19${year}` : `20${year}`;
+    }
+    return `${year}-${month}-${day}`;
+  }
+  return trimmed;
+}
+
+/**
+ * Parse Revolut date format (YYYY-MM-DD HH:MM:SS) to YYYY-MM-DD
+ */
+function parseRevolutDate(dateStr: string): string {
+  if (!dateStr || !dateStr.trim()) {
+    return new Date().toISOString().slice(0, 10);
+  }
+  // Take just the date part
+  return dateStr.trim().slice(0, 10);
+}
+
+/**
+ * Get a field value from a Revolut CSV row, trying multiple possible column names.
+ * Supports both German and English CSV exports.
+ */
+function getRevolutField(
+  row: Record<string, string>,
+  ...fieldNames: string[]
+): string {
+  for (const name of fieldNames) {
+    const val = row[name];
+    if (val) {
+      return typeof val === 'string' ? val.trim() : String(val);
+    }
+  }
+  return '';
+}
+
+/**
+ * Parse Migros Bank CSV and return structured transactions.
+ * Matches the Python implementation's approach: parse raw CSV first, then find header.
+ */
+async function parseMigrosCSV(
+  filepath: string,
+  options: ParseFileOptions,
+): Promise<ParseFileResult> {
+  const errors = Array<ParseError>();
+  const contents = await fs.readFile(filepath);
+
+  // Parse entire CSV with semicolon delimiter (like Python's csv.reader)
+  let allRows: string[][];
+  try {
+    allRows = csv2json(contents, {
+      columns: false, // Return arrays, not objects
+      bom: true,
+      delimiter: ';',
+      quote: '"',
+      trim: true,
+      relax_column_count: true,
+      skip_empty_lines: false, // Keep empty lines for accurate indexing
+    });
+  } catch (err) {
+    errors.push({
+      message: 'Failed parsing Migros Bank CSV: ' + err.message,
+      internal: err.message,
+    });
+    return { errors, transactions: [] };
+  }
+
+  // Find header row (first column is "Datum")
+  let headerIdx = -1;
+  for (let i = 0; i < allRows.length; i++) {
+    const row = allRows[i];
+    if (row && row[0] && row[0].toLowerCase() === 'datum') {
+      headerIdx = i;
+      break;
+    }
+  }
+
+  if (headerIdx === -1) {
+    errors.push({
+      message: 'Could not find header row in Migros Bank CSV',
+      internal: 'Header row with "Datum" column not found',
+    });
+    return { errors, transactions: [] };
+  }
+
+  // Get header and detect column format (4, 6, or 7 columns like Python)
+  const header = allRows[headerIdx];
+  const numCols = header.filter(h => h).length;
+  const hasSaldoColumn = numCols >= 7 && header[5]?.toLowerCase() === 'saldo';
+
+  const transactions: StructuredTransaction[] = [];
+
+  // Parse data rows
+  for (let i = headerIdx + 1; i < allRows.length; i++) {
+    const row = allRows[i];
+    if (!row || !row[0]) continue;
+
+    // Extract fields based on column format (matching Python logic)
+    let datum: string,
+      buchungstext: string,
+      mitteilung: string,
+      betrag: string,
+      valuta: string;
+
+    if (numCols === 4) {
+      // Simple format: Datum;Buchungstext;Betrag;Valuta
+      [datum, buchungstext, betrag, valuta] = row;
+      mitteilung = '';
+    } else if (hasSaldoColumn && row.length >= 7) {
+      // 7-column format: Datum;Buchungstext;Mitteilung;Referenz;Betrag;Saldo;Valuta
+      [datum, buchungstext, mitteilung, , betrag, , valuta] = row;
+    } else {
+      // 6-column format: Datum;Buchungstext;Mitteilung;Referenz;Betrag;Valuta
+      [datum, buchungstext, mitteilung, , betrag, valuta] = row;
+    }
+
+    if (!valuta || !betrag) continue;
+
+    // Parse amount (Swiss format: 1'234.56)
+    const cleanAmount = betrag.replace(/'/g, '').replace(',', '.');
+    const amount = looselyParseAmount(cleanAmount);
+
+    // Extract payee from Buchungstext
+    const payee = extractPayeeFromBuchungstext(buchungstext || '');
+
+    // Extract TWINT ID for duplicate detection
+    const twintId = extractTwintId(buchungstext || '');
+
+    // Build notes
+    const notesParts: string[] = [];
+    if (mitteilung) notesParts.push(mitteilung);
+    if (buchungstext) notesParts.push(`[${buchungstext}]`);
+    const notes = notesParts.join('\n');
+
+    transactions.push({
+      amount: amount ?? 0,
+      date: parseSwissDate(valuta),
+      payee_name: payee,
+      imported_payee: payee,
+      notes: options.importNotes ? notes : '',
+      // Store TWINT ID as imported_id for duplicate detection
+      ...(twintId && { imported_id: twintId }),
+    } as StructuredTransaction);
+  }
+
+  return { errors, transactions };
+}
+
+/**
+ * Parse Revolut CSV and return structured transactions.
+ */
+async function parseRevolutCSV(
+  filepath: string,
+  options: ParseFileOptions,
+): Promise<ParseFileResult> {
+  const errors = Array<ParseError>();
+  const contents = await fs.readFile(filepath);
+
+  let data: ReturnType<typeof csv2json>;
+  try {
+    data = csv2json(contents, {
+      columns: true,
+      bom: true,
+      delimiter: ',',
+      quote: '"',
+      trim: true,
+      relax_column_count: true,
+      skip_empty_lines: true,
+    });
+  } catch (err) {
+    errors.push({
+      message: 'Failed parsing Revolut CSV: ' + err.message,
+      internal: err.message,
+    });
+    return { errors, transactions: [] };
+  }
+
+  const transactions: StructuredTransaction[] = [];
+
+  for (const row of data) {
+    // Skip pending/reverted transactions
+    const status = getRevolutField(row, 'State', 'Status');
+    if (status === 'PENDING' || status === 'REVERTED') {
+      continue;
+    }
+
+    // Use completion date for transaction date
+    const dateStr = getRevolutField(row, 'Completed Date', 'Datum des Abschlusses');
+    if (!dateStr) continue;
+
+    const beschreibung = getRevolutField(row, 'Description', 'Beschreibung');
+    const betrag = getRevolutField(row, 'Amount', 'Betrag');
+    const art = getRevolutField(row, 'Type', 'Art');
+    const currency = getRevolutField(row, 'Currency', 'Währung', 'WAhrung');
+    const fee = getRevolutField(row, 'Fee', 'Gebühr');
+
+    if (!betrag) continue;
+
+    // Parse amount
+    const cleanAmount = betrag.replace(/'/g, '').replace(',', '.');
+    const amount = looselyParseAmount(cleanAmount);
+
+    // Use start date for unique ID
+    const startDateStr = getRevolutField(row, 'Started Date', 'Datum des Beginns');
+    const uniqueId = `REV_${currency}_${startDateStr}_${betrag}`
+      .replace(/\s+/g, '_')
+      .replace(/:/g, '')
+      .slice(0, 50);
+
+    // Build notes
+    const notesParts: string[] = [];
+    if (art) notesParts.push(`[${art}]`);
+    if (currency && currency !== 'CHF') {
+      notesParts.push(`[Original: ${betrag} ${currency}]`);
+    }
+    if (fee && parseFloat(fee.replace(',', '.')) !== 0) {
+      notesParts.push(`Gebühr: ${fee} ${currency}`);
+    }
+
+    transactions.push({
+      amount: amount ?? 0,
+      date: parseRevolutDate(dateStr),
+      payee_name: beschreibung,
+      imported_payee: beschreibung,
+      notes: options.importNotes ? notesParts.join('\n') : '',
+      ...(uniqueId && { imported_id: uniqueId }),
+    } as StructuredTransaction);
+  }
+
+  return { errors, transactions };
+}
 
 export async function parseFile(
   filepath: string,
@@ -110,13 +449,29 @@ async function parseCSV(
   options: ParseFileOptions,
 ): Promise<ParseFileResult> {
   const errors = Array<ParseError>();
-  let contents = await fs.readFile(filepath);
+  const contents = await fs.readFile(filepath);
+
+  // Check for Swiss bank format (auto-detect or explicit)
+  let swissFormat = options.swissBankFormat;
+  if (swissFormat === 'auto' || swissFormat === undefined) {
+    swissFormat = detectSwissBankFormat(contents);
+  }
+
+  if (swissFormat === 'migros') {
+    return parseMigrosCSV(filepath, options);
+  }
+  if (swissFormat === 'revolut') {
+    return parseRevolutCSV(filepath, options);
+  }
+
+  // Standard CSV parsing
+  let processedContents = contents;
 
   const skipStart = Math.max(0, options.skipStartLines || 0);
   const skipEnd = Math.max(0, options.skipEndLines || 0);
 
   if (skipStart > 0 || skipEnd > 0) {
-    const lines = contents.split(/\r?\n/);
+    const lines = processedContents.split(/\r?\n/);
 
     if (skipStart + skipEnd >= lines.length) {
       errors.push({
@@ -128,12 +483,12 @@ async function parseCSV(
 
     const startLine = skipStart;
     const endLine = skipEnd > 0 ? lines.length - skipEnd : lines.length;
-    contents = lines.slice(startLine, endLine).join('\r\n');
+    processedContents = lines.slice(startLine, endLine).join('\r\n');
   }
 
   let data: ReturnType<typeof csv2json>;
   try {
-    data = csv2json(contents, {
+    data = csv2json(processedContents, {
       columns: options?.hasHeaderRow,
       bom: true,
       delimiter: options?.delimiter || ',',
