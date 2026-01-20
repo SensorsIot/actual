@@ -75,6 +75,16 @@ const DEFAULT_IMPORT_SETTINGS: ImportSettings = {
   cash_account: '',
 };
 
+// Payee category assignment for review
+type PayeeCategoryAssignment = {
+  payee: string;
+  proposedCategory: string | null; // "Group:Category" format
+  selectedCategory: string | null; // User-selected category
+  matchScore: number; // 0-1, 1 = exact match
+  hasMatch: boolean; // true if auto-matched (score >= threshold)
+  isExpense: boolean;
+};
+
 function getFileType(filepath: string): string {
   const m = filepath.match(/\.([^.]*)$/);
   if (!m) return 'ofx';
@@ -217,6 +227,9 @@ export function ImportTransactionsModal({
   // Import settings for Swiss bank imports
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [importSettings, setImportSettings] = useState<ImportSettings>(DEFAULT_IMPORT_SETTINGS);
+  // Category review for Swiss bank imports
+  const [payeeCategoryAssignments, setPayeeCategoryAssignments] = useState<PayeeCategoryAssignment[]>([]);
+  const [showCategoryReview, setShowCategoryReview] = useState(false);
 
   // This cannot be set after parsing the file, because changing it
   // requires re-parsing the file. This is different from the other
@@ -426,6 +439,47 @@ export function ImportTransactionsModal({
           setShowSettingsDialog(true);
         } else if (swissBankFormat === 'revolut' && !settings.revolut_bank_account) {
           setShowSettingsDialog(true);
+        }
+
+        // Fetch proposed categories for all unique payees
+        if (parsedTransactions.length > 0) {
+          // Get unique payees with their amounts
+          const payeeAmounts = new Map<string, number>();
+          for (const trans of parsedTransactions) {
+            // @ts-expect-error - trans has dynamic properties
+            const payee = trans.payee_name || trans.imported_payee || trans.payee || '';
+            // @ts-expect-error - trans has dynamic properties
+            const amount = typeof trans.amount === 'number' ? trans.amount : 0;
+            if (payee && !payeeAmounts.has(payee)) {
+              payeeAmounts.set(payee, amount);
+            }
+          }
+
+          // Call API to get proposed categories
+          const payeeInputs = Array.from(payeeAmounts.entries()).map(([payee, amount]) => ({
+            payee,
+            amount,
+          }));
+          const matchResults = await send('swiss-bank-match-payees', { payees: payeeInputs });
+
+          // Convert to assignments
+          const assignments: PayeeCategoryAssignment[] = matchResults.map((result: {
+            payee: string;
+            proposedCategory: string | null;
+            matchScore: number;
+            hasMatch: boolean;
+            isExpense: boolean;
+          }) => ({
+            payee: result.payee,
+            proposedCategory: result.proposedCategory,
+            selectedCategory: result.proposedCategory, // Default to proposed
+            matchScore: result.matchScore,
+            hasMatch: result.hasMatch,
+            isExpense: result.isExpense,
+          }));
+
+          setPayeeCategoryAssignments(assignments);
+          setShowCategoryReview(true);
         }
       }
 
@@ -671,7 +725,27 @@ export function ImportTransactionsModal({
         break;
       }
 
-      const category_id = parseCategoryFields(trans, categories.list);
+      let category_id = parseCategoryFields(trans, categories.list);
+
+      // For Swiss bank imports, apply user-selected category from review
+      if (isSwissBankImport && payeeCategoryAssignments.length > 0) {
+        const payeeName = trans.payee_name || trans.imported_payee || trans.payee || '';
+        const assignment = payeeCategoryAssignments.find(a => a.payee === payeeName);
+        if (assignment?.selectedCategory) {
+          // Parse "Group:Category" and find the category ID
+          const [groupName, catName] = assignment.selectedCategory.split(':');
+          if (groupName && catName) {
+            const group = categories.grouped.find(g => g.name === groupName);
+            if (group) {
+              const cat = group.categories?.find(c => c.name === catName);
+              if (cat) {
+                category_id = cat.id;
+              }
+            }
+          }
+        }
+      }
+
       trans.category = category_id;
 
       const {
@@ -776,6 +850,21 @@ export function ImportTransactionsModal({
 
     if (didChange) {
       await dispatch(reloadPayees());
+    }
+
+    // Save new payee-category mappings for previously unmatched payees
+    if (isSwissBankImport && payeeCategoryAssignments.length > 0) {
+      const newMappings = payeeCategoryAssignments
+        .filter(a => !a.hasMatch && a.selectedCategory) // Only unmatched payees with new selection
+        .map(a => ({
+          payee: a.payee,
+          category: a.selectedCategory!,
+          isExpense: a.isExpense,
+        }));
+
+      if (newMappings.length > 0) {
+        await send('swiss-bank-add-payee-mappings', { newMappings });
+      }
     }
 
     // Close the import modal first, then notify
@@ -1058,6 +1147,87 @@ export function ImportTransactionsModal({
                 >
                   <Trans>Save Settings</Trans>
                 </Button>
+              </View>
+            </View>
+          )}
+
+          {/* Category Review for Swiss Bank Imports */}
+          {isSwissBankImport && showCategoryReview && !showSettingsDialog && payeeCategoryAssignments.length > 0 && (
+            <View
+              style={{
+                marginTop: 10,
+                padding: 10,
+                backgroundColor: theme.tableRowBackgroundHover,
+                borderRadius: 4,
+                border: '1px solid ' + theme.tableBorder,
+                maxHeight: 200,
+                overflow: 'auto',
+              }}
+            >
+              <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>
+                <Trans>Review Categories</Trans>
+                <Text style={{ fontWeight: 'normal', marginLeft: 10, color: theme.pageTextSubdued, fontSize: '0.9em' }}>
+                  ({payeeCategoryAssignments.filter(a => !a.hasMatch).length} <Trans>unmatched</Trans>)
+                </Text>
+              </Text>
+              <View style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                {payeeCategoryAssignments
+                  .sort((a, b) => {
+                    // Sort unmatched first, then by payee name
+                    if (a.hasMatch !== b.hasMatch) return a.hasMatch ? 1 : -1;
+                    return a.payee.localeCompare(b.payee);
+                  })
+                  .map((assignment, idx) => (
+                    <View
+                      key={idx}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 10,
+                        padding: '3px 5px',
+                        backgroundColor: assignment.hasMatch ? 'transparent' : theme.warningBackground,
+                        borderRadius: 2,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          width: 200,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          color: assignment.hasMatch ? theme.pageText : theme.warningText,
+                        }}
+                        title={assignment.payee}
+                      >
+                        {assignment.payee}
+                      </Text>
+                      <Select
+                        value={assignment.selectedCategory || ''}
+                        onChange={(value: string) => {
+                          setPayeeCategoryAssignments(prev =>
+                            prev.map((a, i) =>
+                              i === idx ? { ...a, selectedCategory: value || null } : a
+                            )
+                          );
+                        }}
+                        options={[
+                          ['', t('-- No category --')],
+                          ...categories.list.map(cat => {
+                            const groupName = categories.grouped.find(g => g.id === cat.cat_group)?.name || '';
+                            const fullName = `${groupName}:${cat.name}`;
+                            return [fullName, fullName];
+                          }),
+                        ]}
+                        style={{ flex: 1, fontSize: '0.9em' }}
+                      />
+                      {assignment.hasMatch && (
+                        <Text style={{ color: theme.pageTextSubdued, fontSize: '0.8em', width: 60 }}>
+                          {Math.round(assignment.matchScore * 100)}%
+                        </Text>
+                      )}
+                    </View>
+                  ))}
               </View>
             </View>
           )}
