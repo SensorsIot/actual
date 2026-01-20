@@ -246,8 +246,6 @@ export function ImportTransactionsModal({
     accountBalance: number;
   } | null>(null);
   const [selectedDifferenzCategory, setSelectedDifferenzCategory] = useState<string>('');
-  // Flag to track if we're waiting for learn categories modal to complete
-  const [awaitingLearnCategories, setAwaitingLearnCategories] = useState(false);
 
   // This cannot be set after parsing the file, because changing it
   // requires re-parsing the file. This is different from the other
@@ -504,7 +502,6 @@ export function ImportTransactionsModal({
         if (mappingIsEmpty) {
           // Store transactions first, then show the learn categories modal
           setTransactions(transactions);
-          setAwaitingLearnCategories(true);
           setLoadingState(null);
 
           // Push the learn categories modal - it will call back when done
@@ -514,12 +511,10 @@ export function ImportTransactionsModal({
               options: {
                 onLearn: () => {
                   // After learning, fetch category suggestions
-                  setAwaitingLearnCategories(false);
                   fetchCategorySuggestionsForTransactions(transactions);
                 },
                 onSkip: () => {
                   // User skipped, continue without categories
-                  setAwaitingLearnCategories(false);
                   fetchCategorySuggestionsForTransactions(transactions);
                 },
               },
@@ -531,57 +526,7 @@ export function ImportTransactionsModal({
 
       // Fetch proposed categories for Swiss bank imports (after transactions have IDs)
       if (swissBankFormat && transactions.length > 0) {
-        // Get unique payees with their amounts
-        const payeeAmounts = new Map<string, number>();
-        for (const trans of transactions) {
-          // @ts-expect-error - trans has dynamic properties
-          const payee = trans.payee_name || trans.imported_payee || trans.payee || '';
-          // @ts-expect-error - trans has dynamic properties
-          const amount = typeof trans.amount === 'number' ? trans.amount : 0;
-          if (payee && !payeeAmounts.has(payee)) {
-            payeeAmounts.set(payee, amount);
-          }
-        }
-
-        // Call API to get proposed categories for unique payees
-        const payeeInputs = Array.from(payeeAmounts.entries()).map(([payee, amount]) => ({
-          payee,
-          amount,
-        }));
-        const matchResults = await send('swiss-bank-match-payees', { payees: payeeInputs });
-
-        // Create a map of payee -> match result for quick lookup
-        const payeeMatchMap = new Map<string, {
-          proposedCategory: string | null;
-          hasMatch: boolean;
-          isExpense: boolean;
-        }>();
-        for (const result of matchResults) {
-          payeeMatchMap.set(result.payee, {
-            proposedCategory: result.proposedCategory,
-            hasMatch: result.hasMatch,
-            isExpense: result.isExpense,
-          });
-        }
-
-        // Create per-transaction category map
-        const categoryMap: TransactionCategoryMap = new Map();
-        for (const trans of transactions) {
-          // @ts-expect-error - trans has dynamic properties
-          const payee = trans.payee_name || trans.imported_payee || trans.payee || '';
-          // @ts-expect-error - trans has dynamic properties
-          const trxId = trans.trx_id;
-          const match = payeeMatchMap.get(payee);
-
-          categoryMap.set(trxId, {
-            selectedCategory: match?.proposedCategory || null,
-            proposedCategory: match?.proposedCategory || null,
-            hasMatch: match?.hasMatch || false,
-            payee,
-            isExpense: match?.isExpense ?? true,
-          });
-        }
-        setTransactionCategories(categoryMap);
+        await fetchCategorySuggestionsForTransactions(transactions);
       }
 
       setError(null);
