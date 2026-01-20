@@ -73,6 +73,8 @@ export type AccountHandlers = {
   'swiss-bank-save-payee-mapping': typeof saveSwissBankPayeeMapping;
   'swiss-bank-learn-categories': typeof learnCategoriesFromTransactions;
   'swiss-bank-balance-check': typeof checkAndCorrectBalance;
+  'swiss-bank-match-payees': typeof matchPayeesToCategories;
+  'swiss-bank-add-payee-mappings': typeof addPayeeMappings;
 };
 
 async function updateAccount({
@@ -1705,6 +1707,101 @@ async function saveSwissBankPayeeMapping({
 }
 
 /**
+ * Match a list of payees to categories using the mapping file.
+ * Returns proposed categories for each payee based on 80% Jaccard similarity.
+ */
+export type PayeeMatchInput = {
+  payee: string;
+  amount: number; // negative = expense, positive = income
+};
+
+export type PayeeMatchOutput = {
+  payee: string;
+  proposedCategory: string | null; // "Group:Category" format
+  proposedCategoryId: string | null;
+  matchedPayee: string | null; // The payee in mapping that matched
+  matchScore: number; // 0-1, 1 = exact match
+  isExpense: boolean;
+  hasMatch: boolean; // true if score >= threshold
+};
+
+async function matchPayeesToCategories({
+  payees,
+}: {
+  payees: PayeeMatchInput[];
+}): Promise<PayeeMatchOutput[]> {
+  const mapping = await getSwissBankPayeeMapping({});
+  const results: PayeeMatchOutput[] = [];
+
+  for (const { payee, amount } of payees) {
+    const isExpense = amount < 0;
+    const matchResult = await getPayeeMatchResult(payee, mapping, isExpense);
+
+    results.push({
+      payee,
+      proposedCategory: matchResult.categoryString,
+      proposedCategoryId: matchResult.categoryId,
+      matchedPayee: matchResult.matchedPayee,
+      matchScore: matchResult.matchScore,
+      isExpense: matchResult.isExpense,
+      hasMatch: matchResult.matchScore >= SIMILARITY_THRESHOLD,
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Add new payee-category mappings to the mapping file.
+ * Only adds mappings for payees that don't already exist in the file.
+ */
+async function addPayeeMappings({
+  newMappings,
+}: {
+  newMappings: Array<{
+    payee: string;
+    category: string; // "Group:Category" format
+    isExpense: boolean;
+  }>;
+}): Promise<{ added: number; skipped: number }> {
+  const existingMapping = await getSwissBankPayeeMapping({});
+
+  let added = 0;
+  let skipped = 0;
+
+  for (const { payee, category, isExpense } of newMappings) {
+    // Normalize payee name for comparison
+    const normalizedPayee = normalizeForMatching(payee);
+
+    // Check if this payee already exists in mapping (normalized comparison)
+    let exists = false;
+    for (const existingPayee of Object.keys(existingMapping)) {
+      if (normalizeForMatching(existingPayee) === normalizedPayee) {
+        exists = true;
+        break;
+      }
+    }
+
+    if (!exists) {
+      // Add new mapping with expense/income structure
+      existingMapping[payee] = isExpense
+        ? { expense: category }
+        : { income: category };
+      added++;
+    } else {
+      skipped++;
+    }
+  }
+
+  if (added > 0) {
+    await saveSwissBankPayeeMapping({ mapping: existingMapping });
+    logger.info(`Added ${added} new payee-category mappings`);
+  }
+
+  return { added, skipped };
+}
+
+/**
  * Learn payee-category mappings from existing transactions.
  * Matches Python: learn_categories_from_existing()
  */
@@ -1740,14 +1837,51 @@ async function learnCategoriesFromTransactions({
       GROUP BY p.name, cat_name
     `;
 
+  // Updated query to also get transaction amount for expense/income detection
+  const queryWithAmount = accountId
+    ? `
+      SELECT p.name as payee_name, cg.name || ':' || c.name as cat_name,
+             SUM(t.amount) as total_amount
+      FROM transactions t
+      JOIN payees p ON t.description = p.id
+      JOIN categories c ON t.category = c.id
+      JOIN category_groups cg ON c.cat_group = cg.id
+      WHERE t.tombstone = 0
+        AND t.category IS NOT NULL
+        AND t.category != ''
+        AND t.acct = ?
+      GROUP BY p.name, cat_name
+    `
+    : `
+      SELECT p.name as payee_name, cg.name || ':' || c.name as cat_name,
+             SUM(t.amount) as total_amount
+      FROM transactions t
+      JOIN payees p ON t.description = p.id
+      JOIN categories c ON t.category = c.id
+      JOIN category_groups cg ON c.cat_group = cg.id
+      WHERE t.tombstone = 0
+        AND t.category IS NOT NULL
+        AND t.category != ''
+      GROUP BY p.name, cat_name
+    `;
+
   const rows = accountId
-    ? await db.all<{ payee_name: string; cat_name: string }>(query, [accountId])
-    : await db.all<{ payee_name: string; cat_name: string }>(query);
+    ? await db.all<{ payee_name: string; cat_name: string; total_amount: number }>(
+        queryWithAmount,
+        [accountId],
+      )
+    : await db.all<{ payee_name: string; cat_name: string; total_amount: number }>(
+        queryWithAmount,
+      );
 
   const mapping: PayeeCategoryMapping = {};
   for (const row of rows) {
     if (row.payee_name && row.cat_name) {
-      mapping[row.payee_name] = row.cat_name;
+      // Determine if expense or income based on total amount
+      const isExpense = row.total_amount < 0;
+      mapping[row.payee_name] = isExpense
+        ? { expense: row.cat_name }
+        : { income: row.cat_name };
     }
   }
 
@@ -2172,6 +2306,8 @@ app.method('swiss-bank-save-import-settings', saveImportSettings);
 app.method('swiss-bank-get-payee-mapping', getSwissBankPayeeMapping);
 app.method('swiss-bank-save-payee-mapping', saveSwissBankPayeeMapping);
 app.method('swiss-bank-learn-categories', learnCategoriesFromTransactions);
+app.method('swiss-bank-match-payees', matchPayeesToCategories);
+app.method('swiss-bank-add-payee-mappings', addPayeeMappings);
 app.method(
   'swiss-bank-balance-check',
   mutator(undoable(checkAndCorrectBalance)),
