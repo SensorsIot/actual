@@ -40,6 +40,7 @@ import { GoalTemplateModal } from './modals/GoalTemplateModal';
 import { GoCardlessExternalMsgModal } from './modals/GoCardlessExternalMsgModal';
 import { GoCardlessInitialiseModal } from './modals/GoCardlessInitialiseModal';
 import { HoldBufferModal } from './modals/HoldBufferModal';
+import { ImportSummaryModal } from './modals/ImportSummaryModal';
 import { ImportTransactionsModal } from './modals/ImportTransactionsModal';
 import { KeyboardShortcutModal } from './modals/KeyboardShortcutModal';
 import { LoadBackupModal } from './modals/LoadBackupModal';
@@ -122,6 +123,9 @@ export function Modals() {
 
         case 'import-transactions':
           return <ImportTransactionsModal key={key} {...modal.options} />;
+
+        case 'import-summary':
+          return <ImportSummaryModal key={key} {...modal.options} />;
 
         case 'add-account':
           return <CreateAccountModal key={key} {...modal.options} />;

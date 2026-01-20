@@ -588,6 +588,18 @@ export type Modal =
         categoryId: CategoryEntity['id'];
         templates: Template[];
       };
+    }
+  | {
+      name: 'import-summary';
+      options: {
+        importType: 'migros' | 'revolut';
+        accountsUsed: string[];
+        accountsCreated: string[];
+        transactionsAdded: number;
+        transactionsUpdated: number;
+        categoriesApplied: number;
+        errors: string[];
+      };
     };
 
 type OpenAccountCloseModalPayload = {

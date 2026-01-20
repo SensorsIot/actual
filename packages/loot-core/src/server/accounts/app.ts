@@ -1156,6 +1156,7 @@ type RevolutImportResult = {
   accountsCreated: string[];
   imported: Record<string, { added: string[]; updated: string[] }>;
   transfersLinked: number;
+  categoriesApplied: number;
 };
 
 async function findOrCreateAccount(
@@ -1237,6 +1238,7 @@ async function importRevolutTransactions({
     accountsCreated: [],
     imported: {},
     transfersLinked: 0,
+    categoriesApplied: 0,
   };
 
   // Load settings from import_settings.json
@@ -1307,6 +1309,7 @@ async function importRevolutTransactions({
             );
             if (categoryId) {
               txn.category = categoryId;
+              result.categoriesApplied++;
             }
           }
         }
@@ -1464,6 +1467,7 @@ type MigrosImportResult = {
   errors: Array<{ message: string }>;
   accountUsed: string;
   imported: { added: string[]; updated: string[] };
+  categoriesApplied: number;
 };
 
 async function importMigrosTransactions({
@@ -1481,6 +1485,7 @@ async function importMigrosTransactions({
     errors: [],
     accountUsed: '',
     imported: { added: [], updated: [] },
+    categoriesApplied: 0,
   };
 
   try {
@@ -1523,10 +1528,11 @@ async function importMigrosTransactions({
           );
           if (categoryId) {
             txn.category = categoryId;
+            result.categoriesApplied++;
           }
         }
       }
-      logger.info(`Applied payee-category mapping to ${transactions.length} transactions`);
+      logger.info(`Applied payee-category mapping: ${result.categoriesApplied} categorized`);
     }
 
     // Import transactions to this account

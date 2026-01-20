@@ -14,6 +14,7 @@ import {
 } from 'loot-core/types/models';
 
 import { resetApp } from '@desktop-client/app/appSlice';
+import { pushModal } from '@desktop-client/modals/modalsSlice';
 import { addNotification } from '@desktop-client/notifications/notificationsSlice';
 import { markPayeesDirty } from '@desktop-client/payees/payeesSlice';
 import { createAppAsyncThunk } from '@desktop-client/redux';
@@ -632,51 +633,51 @@ export const importRevolutTransactions = createAppAsyncThunk(
       errors = [],
       accountsCreated = [],
       imported = {},
+      categoriesApplied = 0,
     } = await send('transactions-import-revolut', {
       transactions,
       isPreview: false,
     });
 
-    errors.forEach(error => {
-      dispatch(
-        addNotification({
-          notification: {
-            type: 'error',
-            message: error.message,
-          },
-        }),
-      );
-    });
-
-    // Notify about created accounts
+    // Reload accounts if new ones were created
     if (accountsCreated.length > 0) {
-      dispatch(
-        addNotification({
-          notification: {
-            type: 'message',
-            message: `Created ${accountsCreated.length} Revolut account(s): ${accountsCreated.join(', ')}`,
-          },
-        }),
-      );
-      // Reload accounts to show the new ones
       dispatch(reloadAccounts());
     }
 
     // Collect all added/updated transaction IDs
     const allAdded: string[] = [];
     const allUpdated: string[] = [];
-    const affectedAccountIds: string[] = [];
+    const accountsUsed: string[] = [];
 
     for (const currency of Object.keys(imported)) {
       const { added, updated } = imported[currency];
       allAdded.push(...added);
       allUpdated.push(...updated);
+      accountsUsed.push(`Revolut ${currency}`);
     }
 
     dispatch(
       setNewTransactions({
         newTransactions: allAdded,
         matchedTransactions: allUpdated,
+      }),
+    );
+
+    // Show import summary modal
+    dispatch(
+      pushModal({
+        modal: {
+          name: 'import-summary',
+          options: {
+            importType: 'revolut',
+            accountsUsed,
+            accountsCreated,
+            transactionsAdded: allAdded.length,
+            transactionsUpdated: allUpdated.length,
+            categoriesApplied,
+            errors: errors.map(e => e.message),
+          },
+        },
       }),
     );
 
@@ -699,43 +700,38 @@ export const importMigrosTransactions = createAppAsyncThunk(
       errors = [],
       accountUsed = '',
       imported = { added: [], updated: [] },
+      categoriesApplied = 0,
     } = await send('transactions-import-migros', {
       transactions,
       isPreview: false,
     });
 
-    errors.forEach(error => {
-      dispatch(
-        addNotification({
-          notification: {
-            type: 'error',
-            message: error.message,
-          },
-        }),
-      );
-    });
-
-    if (accountUsed) {
-      const addedCount = imported.added?.length || 0;
-      const updatedCount = imported.updated?.length || 0;
-      dispatch(
-        addNotification({
-          notification: {
-            type: 'message',
-            message: `Imported to ${accountUsed}: ${addedCount} added, ${updatedCount} updated`,
-          },
-        }),
-      );
-    }
-
     dispatch(
       setNewTransactions({
-        newTransactions: imported.added,
-        matchedTransactions: imported.updated,
+        newTransactions: imported.added || [],
+        matchedTransactions: imported.updated || [],
       }),
     );
 
-    return imported.added.length > 0 || imported.updated.length > 0;
+    // Show import summary modal
+    dispatch(
+      pushModal({
+        modal: {
+          name: 'import-summary',
+          options: {
+            importType: 'migros',
+            accountsUsed: accountUsed ? [accountUsed] : [],
+            accountsCreated: [],
+            transactionsAdded: imported.added?.length || 0,
+            transactionsUpdated: imported.updated?.length || 0,
+            categoriesApplied,
+            errors: errors.map(e => e.message),
+          },
+        },
+      }),
+    );
+
+    return (imported.added?.length || 0) > 0 || (imported.updated?.length || 0) > 0;
   },
 );
 
