@@ -297,6 +297,7 @@ async function downloadPluggyAiTransactions(
 }
 
 async function resolvePayee(trans, payeeName, payeesToCreate) {
+  console.log('[resolvePayee] trans.payee:', trans.payee, 'payeeName:', payeeName);
   if (trans.payee == null && payeeName) {
     // First check our registry of new payees (to avoid a db access)
     // then check the db for existing payees
@@ -304,15 +305,18 @@ async function resolvePayee(trans, payeeName, payeesToCreate) {
     payee = payee || (await db.getPayeeByName(payeeName));
 
     if (payee != null) {
+      console.log('[resolvePayee] Found existing payee:', payee.id, payee.name);
       return payee.id;
     } else {
       // Otherwise we're going to create a new one
       const newPayee = { id: uuidv4(), name: payeeName };
       payeesToCreate.set(payeeName.toLowerCase(), newPayee);
+      console.log('[resolvePayee] Created new payee:', newPayee.id, newPayee.name);
       return newPayee.id;
     }
   }
 
+  console.log('[resolvePayee] Returning trans.payee:', trans.payee);
   return trans.payee;
 }
 
@@ -530,13 +534,17 @@ export async function reconcileTransactions(
       if (existing.payee) {
         const existingPayeeRecord = await db.getPayee(existing.payee);
         existingPayeeValid = !!(existingPayeeRecord?.name);
+        console.log('[Reconcile] existing.payee:', existing.payee, 'name:', existingPayeeRecord?.name, 'valid:', existingPayeeValid);
       }
+      console.log('[Reconcile] trans.payee:', trans.payee, 'trans.imported_payee:', trans.imported_payee);
 
       // Update the transaction
       // For payee: only keep existing if it's valid, otherwise use imported payee
+      const finalPayee = existingPayeeValid ? existing.payee : (trans.payee || null);
+      console.log('[Reconcile] Final payee decision:', finalPayee);
       const updates = {
         imported_id: trans.imported_id || null,
-        payee: existingPayeeValid ? existing.payee : (trans.payee || null),
+        payee: finalPayee,
         category: existing.category || trans.category || null,
         imported_payee: trans.imported_payee || null,
         notes: existing.notes || trans.notes || null,

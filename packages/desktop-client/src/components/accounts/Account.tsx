@@ -447,24 +447,14 @@ class AccountInternal extends PureComponent<
   };
 
   fetchTransactions = (filterConditions?: ConditionEntity[]) => {
-    console.log('[Account] fetchTransactions START');
     const query = this.makeRootTransactionsQuery();
-    console.log('[Account] fetchTransactions - query created');
     this.rootQuery = this.currentQuery = query;
-    if (filterConditions) {
-      console.log('[Account] fetchTransactions - applying filters');
-      this.applyFilters(filterConditions);
-    } else {
-      console.log('[Account] fetchTransactions - updating query');
-      this.updateQuery(query);
-    }
-    console.log('[Account] fetchTransactions - query updated');
+    if (filterConditions) this.applyFilters(filterConditions);
+    else this.updateQuery(query);
 
     if (this.props.accountId) {
-      console.log('[Account] fetchTransactions - marking account read');
       this.props.dispatch(markAccountRead({ id: this.props.accountId }));
     }
-    console.log('[Account] fetchTransactions END');
   };
 
   makeRootTransactionsQuery = () => {
@@ -474,9 +464,7 @@ class AccountInternal extends PureComponent<
   };
 
   updateQuery(query: Query, isFiltered: boolean = false) {
-    console.log('[Account] updateQuery START, isFiltered:', isFiltered);
     if (this.paged) {
-      console.log('[Account] updateQuery - unsubscribing paged');
       this.paged.unsubscribe();
     }
 
@@ -616,11 +604,8 @@ class AccountInternal extends PureComponent<
                   accountId,
                   filename: res[0],
                   onImported: (didChange: boolean) => {
-                    console.log('[Account] onImported called, didChange:', didChange);
                     if (didChange) {
-                      console.log('[Account] Calling fetchTransactions...');
                       this.fetchTransactions();
-                      console.log('[Account] fetchTransactions called');
                     }
                   },
                 },
