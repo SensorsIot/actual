@@ -1241,8 +1241,11 @@ async function importRevolutTransactions({
     transfersLinked: 0,
   };
 
-  const bankAccountName = opts?.bankAccountName || 'Konto Migros 348-02';
-  const cashAccountName = opts?.cashAccountName || 'Kasse';
+  // Load settings from import_settings.json
+  const importSettings = await getImportSettings();
+  const bankAccountName =
+    opts?.bankAccountName || importSettings.revolut_bank_account;
+  const cashAccountName = opts?.cashAccountName || importSettings.cash_account;
   const createTransfers = opts?.createTransfers !== false;
 
   try {
@@ -1439,6 +1442,85 @@ async function importRevolutTransactions({
   }
 }
 
+/**
+ * Import Migros CSV transactions to the configured account.
+ * Uses migros_account from import_settings.json instead of selected account.
+ */
+type MigrosImportResult = {
+  errors: Array<{ message: string }>;
+  accountUsed: string;
+  imported: { added: string[]; updated: string[] };
+};
+
+async function importMigrosTransactions({
+  transactions,
+  isPreview = false,
+  opts,
+}: {
+  transactions: ImportTransactionEntity[];
+  isPreview?: boolean;
+  opts?: {
+    defaultCleared?: boolean;
+  };
+}): Promise<MigrosImportResult> {
+  const result: MigrosImportResult = {
+    errors: [],
+    accountUsed: '',
+    imported: { added: [], updated: [] },
+  };
+
+  try {
+    // Load settings from import_settings.json
+    const importSettings = await getImportSettings();
+    const accountName = importSettings.migros_account;
+    result.accountUsed = accountName;
+
+    // Find or create account
+    const existingAccount = await db.first<db.DbAccount>(
+      'SELECT id FROM accounts WHERE name = ? AND tombstone = 0',
+      [accountName],
+    );
+
+    let accountId: AccountEntity['id'];
+    if (existingAccount) {
+      accountId = existingAccount.id;
+    } else {
+      if (isPreview) {
+        return result;
+      }
+      accountId = await findOrCreateAccount(accountName, false);
+      logger.info(`Created Migros account: ${accountName}`);
+    }
+
+    // Import transactions to this account
+    const reconciled = await bankSync.reconcileTransactions(
+      accountId,
+      transactions,
+      false,
+      true,
+      isPreview,
+      opts?.defaultCleared,
+    );
+
+    result.imported = {
+      added: reconciled.added,
+      updated: reconciled.updated,
+    };
+
+    logger.info(
+      `Migros import to ${accountName}: ${reconciled.added.length} added, ${reconciled.updated.length} updated`,
+    );
+
+    return result;
+  } catch (err) {
+    if (err instanceof TransactionError) {
+      result.errors.push({ message: err.message });
+      return result;
+    }
+    throw err;
+  }
+}
+
 // =============================================================================
 // Swiss Bank Import Features (matching Python bank_csv_import.py)
 // =============================================================================
@@ -1448,6 +1530,68 @@ async function importRevolutTransactions({
  * Key: payee name, Value: "CategoryGroup:Category" format
  */
 type PayeeCategoryMapping = Record<string, string>;
+
+/**
+ * Import settings stored in budget directory as import_settings.json
+ */
+type ImportSettings = {
+  migros_account: string; // Account for Migros CSV imports
+  revolut_bank_account: string; // Bank account for Revolut transfers
+  cash_account: string; // Cash account for ATM withdrawals
+};
+
+const DEFAULT_IMPORT_SETTINGS: ImportSettings = {
+  migros_account: 'Konto Migros 348-02',
+  revolut_bank_account: 'Konto Migros 348-02',
+  cash_account: 'Kasse',
+};
+
+/**
+ * Get import settings file path in budget directory.
+ */
+function getImportSettingsFilePath(): string {
+  const budgetDir = prefs.getPrefs()?.id
+    ? fs.getBudgetDir(prefs.getPrefs().id)
+    : '.';
+  return fs.join(budgetDir, 'import_settings.json');
+}
+
+/**
+ * Get import settings from JSON file in budget directory.
+ */
+async function getImportSettings(): Promise<ImportSettings> {
+  try {
+    const filePath = getImportSettingsFilePath();
+    const content = await fs.readFile(filePath);
+    if (content) {
+      return { ...DEFAULT_IMPORT_SETTINGS, ...JSON.parse(content) };
+    }
+  } catch {
+    logger.info('No import_settings.json found, using defaults');
+  }
+  return DEFAULT_IMPORT_SETTINGS;
+}
+
+/**
+ * Save import settings to JSON file in budget directory.
+ */
+async function saveImportSettings({
+  settings,
+}: {
+  settings: Partial<ImportSettings>;
+}): Promise<{ success: boolean }> {
+  try {
+    const current = await getImportSettings();
+    const merged = { ...current, ...settings };
+    const filePath = getImportSettingsFilePath();
+    await fs.writeFile(filePath, JSON.stringify(merged, null, 2));
+    logger.info(`Saved import settings to ${filePath}`);
+    return { success: true };
+  } catch (err) {
+    logger.error('Failed to save import settings:', err);
+    return { success: false };
+  }
+}
 
 /**
  * Get the file path for payee-category mapping storage.
@@ -1829,8 +1973,14 @@ app.method(
   'transactions-import-revolut',
   mutator(undoable(importRevolutTransactions)),
 );
+app.method(
+  'transactions-import-migros',
+  mutator(undoable(importMigrosTransactions)),
+);
 app.method('account-unlink', mutator(unlinkAccount));
 // Swiss bank import features
+app.method('swiss-bank-get-import-settings', getImportSettings);
+app.method('swiss-bank-save-import-settings', saveImportSettings);
 app.method('swiss-bank-get-payee-mapping', getSwissBankPayeeMapping);
 app.method('swiss-bank-save-payee-mapping', saveSwissBankPayeeMapping);
 app.method('swiss-bank-learn-categories', learnCategoriesFromTransactions);

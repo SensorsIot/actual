@@ -40,6 +40,7 @@ import {
 } from './utils';
 
 import {
+  importMigrosTransactions,
   importPreviewTransactions,
   importRevolutTransactions,
   importTransactions,
@@ -195,6 +196,8 @@ export function ImportTransactionsModal({
   const [importNotes, setImportNotes] = useState(true);
   // Track if this is a Revolut multi-currency import
   const [isRevolutImport, setIsRevolutImport] = useState(false);
+  // Track if this is a Migros import
+  const [isMigrosImport, setIsMigrosImport] = useState(false);
   // Track if this is a Swiss bank import (Migros or Revolut) - hide CSV options
   const [isSwissBankImport, setIsSwissBankImport] = useState(false);
 
@@ -394,6 +397,8 @@ export function ImportTransactionsModal({
       // Detect Swiss bank format (Migros or Revolut) from metadata
       const swissBankFormat = metadata?.bankFormat;
       setIsSwissBankImport(!!swissBankFormat);
+      setIsMigrosImport(swissBankFormat === 'migros');
+      setIsRevolutImport(swissBankFormat === 'revolut');
 
       let index = 0;
       const transactions = parsedTransactions.map(trans => {
@@ -451,23 +456,6 @@ export function ImportTransactionsModal({
         } else {
           setFieldMappings(null);
           setParseDateFormat(null);
-        }
-
-        // Detect Revolut multi-currency import (transactions have currency field)
-        const hasMultipleCurrencies =
-          transactions.length > 0 &&
-          // @ts-expect-error - trans might have currency property from Revolut parser
-          transactions.some(trans => trans.currency);
-        setIsRevolutImport(hasMultipleCurrencies);
-
-        if (hasMultipleCurrencies) {
-          // @ts-expect-error - trans might have currency property
-          const currencies = [
-            ...new Set(transactions.map(t => t.currency || 'CHF')),
-          ];
-          console.log(
-            `Detected Revolut multi-currency import: ${currencies.join(', ')}`,
-          );
         }
 
         setParsedTransactions(transactions as ImportTransaction[]);
@@ -539,8 +527,8 @@ export function ImportTransactionsModal({
     const res = await window.Actual.openFileDialog({
       filters: [
         {
-          name: 'Financial Files',
-          extensions: ['qif', 'ofx', 'qfx', 'csv', 'tsv', 'xml'],
+          name: 'CSV Files',
+          extensions: ['csv', 'tsv'],
         },
       ],
     });
@@ -733,14 +721,21 @@ export function ImportTransactionsModal({
 
     if (isRevolutImport) {
       // Use Revolut multi-currency handler
-      // This will create accounts for each currency (Revolut, Revolut EUR, etc.)
+      // Routes to currency-specific accounts (Revolut, Revolut EUR, etc.)
       didChange = await dispatch(
         importRevolutTransactions({
           transactions: finalTransactions,
         }),
       ).unwrap();
+    } else if (isMigrosImport) {
+      // Use Migros handler - routes to configured account from import_settings.json
+      didChange = await dispatch(
+        importMigrosTransactions({
+          transactions: finalTransactions,
+        }),
+      ).unwrap();
     } else {
-      // Use standard single-account import
+      // Use standard single-account import (for non-Swiss bank formats)
       didChange = await dispatch(
         importTransactions({
           accountId,

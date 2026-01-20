@@ -684,6 +684,59 @@ export const importRevolutTransactions = createAppAsyncThunk(
   },
 );
 
+/**
+ * Import Migros transactions to the configured account.
+ * Uses migros_account from import_settings.json.
+ */
+type ImportMigrosTransactionsPayload = {
+  transactions: TransactionEntity[];
+};
+
+export const importMigrosTransactions = createAppAsyncThunk(
+  `${sliceName}/importMigrosTransactions`,
+  async ({ transactions }: ImportMigrosTransactionsPayload, { dispatch }) => {
+    const {
+      errors = [],
+      accountUsed = '',
+      imported = { added: [], updated: [] },
+    } = await send('transactions-import-migros', {
+      transactions,
+      isPreview: false,
+    });
+
+    errors.forEach(error => {
+      dispatch(
+        addNotification({
+          notification: {
+            type: 'error',
+            message: error.message,
+          },
+        }),
+      );
+    });
+
+    if (accountUsed) {
+      dispatch(
+        addNotification({
+          notification: {
+            type: 'message',
+            message: `Imported to ${accountUsed}: ${imported.added.length} added`,
+          },
+        }),
+      );
+    }
+
+    dispatch(
+      setNewTransactions({
+        newTransactions: imported.added,
+        matchedTransactions: imported.updated,
+      }),
+    );
+
+    return imported.added.length > 0 || imported.updated.length > 0;
+  },
+);
+
 export const getAccountsById = memoizeOne(
   (accounts: AccountEntity[] | null | undefined) => groupById(accounts),
 );

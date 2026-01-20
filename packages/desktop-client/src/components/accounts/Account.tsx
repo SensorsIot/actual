@@ -588,8 +588,8 @@ class AccountInternal extends PureComponent<
       const res = await window.Actual.openFileDialog({
         filters: [
           {
-            name: t('Financial files'),
-            extensions: ['qif', 'ofx', 'qfx', 'csv', 'tsv', 'xml'],
+            name: t('CSV Files'),
+            extensions: ['csv', 'tsv'],
           },
         ],
       });
