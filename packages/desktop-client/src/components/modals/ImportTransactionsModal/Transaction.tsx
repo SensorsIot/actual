@@ -17,6 +17,7 @@ import {
   applyFieldMappings,
   formatDate,
   parseAmountFields,
+  parseDate,
   type FieldMapping,
   type ImportTransaction,
 } from './utils';
@@ -44,6 +45,9 @@ type TransactionProps = {
   isSwissBankImport?: boolean;
   selectedCategory?: string | null; // "Group:Category" format
   onCategoryChange?: (transactionId: string, category: string | null) => void;
+  // Notes editing for Swiss bank imports
+  editedNotes?: string | null;
+  onNotesChange?: (transactionId: string, notes: string | null) => void;
 };
 
 export function Transaction({
@@ -65,6 +69,8 @@ export function Transaction({
   isSwissBankImport = false,
   selectedCategory,
   onCategoryChange,
+  editedNotes,
+  onNotesChange,
 }: TransactionProps) {
   const { t } = useTranslation();
 
@@ -199,7 +205,7 @@ export function Transaction({
           )}
         </Field>
       )}
-      <Field width={200}>
+      <Field width={90}>
         {transaction.isMatchedTransaction ? (
           <View>
             <SpaceBetween style={{ alignItems: 'flex-start' }}>
@@ -208,6 +214,14 @@ export function Transaction({
               </View>
               <View>{formatDate(transaction.date ?? null, dateFormat)}</View>
             </SpaceBetween>
+          </View>
+        ) : isSwissBankImport ? (
+          // For Swiss bank imports, only show the formatted date (green), not the original → parsed format
+          <View style={{ color: theme.noticeTextLight }}>
+            {formatDate(
+              parseDateFormat ? parseDate(transaction.date ?? '', parseDateFormat) : transaction.date ?? null,
+              dateFormat,
+            )}
           </View>
         ) : showParsed ? (
           <ParsedDate
@@ -220,16 +234,36 @@ export function Transaction({
         )}
       </Field>
       <Field
-        width="flex"
+        width={250}
         title={transaction.imported_payee || transaction.payee_name}
       >
         {transaction.payee_name}
       </Field>
-      <Field width="flex" title={transaction.notes}>
-        {transaction.notes}
+      <Field width={250} title={editedNotes ?? transaction.notes}>
+        {/* Show textarea for new transactions in Swiss bank imports (2 lines) */}
+        {isSwissBankImport && !transaction.isMatchedTransaction && !transaction.ignored ? (
+          <textarea
+            value={editedNotes ?? transaction.notes ?? ''}
+            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+              onNotesChange?.(transaction.trx_id, e.target.value || null);
+            }}
+            rows={2}
+            style={{
+              fontSize: '0.85em',
+              padding: '2px 4px',
+              width: '100%',
+              resize: 'none',
+              border: '1px solid ' + theme.tableBorder,
+              borderRadius: 4,
+              fontFamily: 'inherit',
+            }}
+          />
+        ) : (
+          editedNotes ?? transaction.notes
+        )}
       </Field>
       <Field
-        width="flex"
+        width={200}
         title={
           selectedCategory || (transaction.category && categoryList.includes(transaction.category)
             ? transaction.category
@@ -269,7 +303,7 @@ export function Transaction({
       </Field>
       {showStatus && !transaction.isMatchedTransaction && (
         <Field
-          width={80}
+          width={70}
           contentStyle={{
             textAlign: 'center',
             fontWeight: 500,

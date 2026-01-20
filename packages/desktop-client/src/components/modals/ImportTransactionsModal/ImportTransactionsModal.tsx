@@ -229,6 +229,8 @@ export function ImportTransactionsModal({
   const [importSettings, setImportSettings] = useState<ImportSettings>(DEFAULT_IMPORT_SETTINGS);
   // Category selection for Swiss bank imports (per transaction)
   const [transactionCategories, setTransactionCategories] = useState<TransactionCategoryMap>(new Map());
+  // Notes editing for Swiss bank imports (per transaction)
+  const [transactionNotes, setTransactionNotes] = useState<Map<string, string | null>>(new Map());
 
   // This cannot be set after parsing the file, because changing it
   // requires re-parsing the file. This is different from the other
@@ -705,6 +707,15 @@ export function ImportTransactionsModal({
     });
   }
 
+  // Handle notes change for Swiss bank imports
+  function onTransactionNotesChange(transactionId: string, notes: string | null) {
+    setTransactionNotes(prev => {
+      const newMap = new Map(prev);
+      newMap.set(transactionId, notes);
+      return newMap;
+    });
+  }
+
   async function onImport(close) {
     setLoadingState('importing');
 
@@ -1006,7 +1017,7 @@ export function ImportTransactionsModal({
     <Modal
       name="import-transactions"
       isLoading={loadingState === 'parsing'}
-      containerProps={{ style: { width: '95vw', maxWidth: 1400 } }}
+      containerProps={{ style: { width: 1050, maxHeight: '90vh' } }}
     >
       {({ state: { close } }) => (
         <>
@@ -1031,7 +1042,7 @@ export function ImportTransactionsModal({
             <View
               style={{
                 flex: 'unset',
-                height: 300,
+                height: 450,
                 border: '1px solid ' + theme.tableBorder,
               }}
             >
@@ -1082,6 +1093,8 @@ export function ImportTransactionsModal({
                       isSwissBankImport={isSwissBankImport}
                       selectedCategory={transactionCategories.get(item.trx_id)?.selectedCategory}
                       onCategoryChange={onTransactionCategoryChange}
+                      editedNotes={transactionNotes.get(item.trx_id)}
+                      onNotesChange={onTransactionNotesChange}
                     />
                   </View>
                 )}
