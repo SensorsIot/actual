@@ -10,6 +10,64 @@ import { qif2json } from './qif2json';
 import { xmlCAMT2json } from './xmlcamt2json';
 
 /**
+ * Cache for exchange rates to avoid repeated API calls.
+ * Key: "YYYY-MM-DD_EUR" -> rate to CHF
+ */
+const exchangeRateCache = new Map<string, number>();
+
+/**
+ * Get exchange rate from a currency to CHF for a given date.
+ * Uses Frankfurter API (free, no API key needed).
+ * Returns 1.0 for CHF, fetches rate for other currencies.
+ */
+async function getExchangeRate(date: string, fromCurrency: string): Promise<number> {
+  const currency = fromCurrency.toUpperCase();
+
+  // CHF to CHF is always 1
+  if (currency === 'CHF') {
+    return 1.0;
+  }
+
+  // Check cache first
+  const cacheKey = `${date}_${currency}`;
+  if (exchangeRateCache.has(cacheKey)) {
+    return exchangeRateCache.get(cacheKey)!;
+  }
+
+  try {
+    // Frankfurter API: https://www.frankfurter.app/docs/
+    const url = `https://api.frankfurter.app/${date}?from=${currency}&to=CHF`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      logger.warn(`Exchange rate API error: ${response.status} for ${currency} on ${date}`);
+      // Fallback: try latest rate
+      const latestUrl = `https://api.frankfurter.app/latest?from=${currency}&to=CHF`;
+      const latestResponse = await fetch(latestUrl);
+      if (latestResponse.ok) {
+        const latestData = await latestResponse.json();
+        const rate = latestData.rates?.CHF || 1.0;
+        exchangeRateCache.set(cacheKey, rate);
+        return rate;
+      }
+      return 1.0; // Ultimate fallback
+    }
+
+    const data = await response.json();
+    const rate = data.rates?.CHF || 1.0;
+
+    // Cache the rate
+    exchangeRateCache.set(cacheKey, rate);
+    logger.info(`Exchange rate ${currency}->CHF on ${date}: ${rate}`);
+
+    return rate;
+  } catch (error) {
+    logger.error(`Failed to fetch exchange rate for ${currency} on ${date}:`, error);
+    return 1.0; // Fallback to 1:1 if API fails
+  }
+}
+
+/**
  * Parse OFX amount strings to numbers.
  * Handles various OFX amount formats including currency symbols, parentheses, and multiple decimal places.
  * Returns null for invalid amounts instead of NaN.
@@ -513,9 +571,20 @@ async function parseRevolutCSV(
 
     if (!betrag) continue;
 
-    // Parse amount
+    // Parse amount in original currency
     const cleanAmount = betrag.replace(/'/g, '').replace(',', '.');
-    const amount = looselyParseAmount(cleanAmount);
+    const originalAmount = looselyParseAmount(cleanAmount);
+
+    // Parse date for exchange rate lookup
+    const transactionDate = parseRevolutDate(dateStr);
+
+    // Convert amount to CHF using exchange rate API
+    const currencyCode = currency?.toUpperCase() || 'CHF';
+    let amountCHF = originalAmount ?? 0;
+    if (currencyCode !== 'CHF' && originalAmount !== null) {
+      const rate = await getExchangeRate(transactionDate, currencyCode);
+      amountCHF = Math.round((originalAmount * rate) * 100) / 100; // Round to 2 decimals
+    }
 
     // Classify transaction type and detect transfers
     const { type: txnType, transferAccount } = classifyRevolutTransaction(
@@ -524,35 +593,35 @@ async function parseRevolutCSV(
       currency,
     );
 
-    // Use start date + currency + amount for unique ID (keeps compatibility with existing data)
+    // Use currency + timestamp for unique ID (timestamp is unique per transaction)
     const startDateStr = getRevolutField(
       row,
       'Started Date',
       'Datum des Beginns',
     );
-    const uniqueId = `REV_${currency}_${startDateStr}_${betrag}`
+    const uniqueId = `REV_${currencyCode}_${startDateStr}`
       .replace(/\s+/g, '_')
-      .replace(/:/g, '')
+      .replace(/:/g, '-')
       .slice(0, 50);
 
     // Build notes with transaction type info
     const notesParts: string[] = [];
     if (art) notesParts.push(`[${art}]`);
-    if (currency && currency !== 'CHF') {
-      notesParts.push(`[Original: ${betrag} ${currency}]`);
+    if (currencyCode !== 'CHF') {
+      notesParts.push(`[Original: ${betrag} ${currencyCode}]`);
     }
     if (fee && parseFloat(fee.replace(',', '.')) !== 0) {
-      notesParts.push(`Gebühr: ${fee} ${currency}`);
+      notesParts.push(`Gebühr: ${fee} ${currencyCode}`);
     }
 
     transactions.push({
-      amount: amount ?? 0,
-      date: parseRevolutDate(dateStr),
+      amount: amountCHF,
+      date: transactionDate,
       payee_name: beschreibung,
       imported_payee: beschreibung,
       notes: options.importNotes ? notesParts.join('\n') : '',
-      // Multi-currency support
-      currency: currency || 'CHF',
+      // Multi-currency support - keep currency for account routing
+      currency: currencyCode,
       transaction_type: txnType,
       transfer_account: transferAccount,
       ...(uniqueId && { imported_id: uniqueId }),
