@@ -297,7 +297,6 @@ async function downloadPluggyAiTransactions(
 }
 
 async function resolvePayee(trans, payeeName, payeesToCreate) {
-  logger.log('[resolvePayee] trans.payee:', trans.payee, 'payeeName:', payeeName);
   if (trans.payee == null && payeeName) {
     // First check our registry of new payees (to avoid a db access)
     // then check the db for existing payees
@@ -305,18 +304,15 @@ async function resolvePayee(trans, payeeName, payeesToCreate) {
     payee = payee || (await db.getPayeeByName(payeeName));
 
     if (payee != null) {
-      logger.log('[resolvePayee] Found existing payee:', payee.id, payee.name);
       return payee.id;
     } else {
       // Otherwise we're going to create a new one
       const newPayee = { id: uuidv4(), name: payeeName };
       payeesToCreate.set(payeeName.toLowerCase(), newPayee);
-      logger.log('[resolvePayee] Created new payee:', newPayee.id, newPayee.name);
       return newPayee.id;
     }
   }
 
-  logger.log('[resolvePayee] Returning trans.payee:', trans.payee);
   return trans.payee;
 }
 
@@ -464,14 +460,10 @@ async function normalizeBankSyncTransactions(transactions, acctId) {
 async function createNewPayees(payeesToCreate, addsAndUpdates) {
   const usedPayeeIds = new Set(addsAndUpdates.map(t => t.payee));
 
-  logger.log('[createNewPayees] payeesToCreate:', [...payeesToCreate.entries()].map(([k, v]) => ({ key: k, ...v })));
-  logger.log('[createNewPayees] usedPayeeIds:', [...usedPayeeIds]);
-
   await batchMessages(async () => {
     for (const payee of payeesToCreate.values()) {
       // Only create the payee if it ended up being used
       if (usedPayeeIds.has(payee.id)) {
-        logger.log('[createNewPayees] Creating payee:', payee);
         await db.insertPayee(payee);
       }
     }
@@ -538,9 +530,7 @@ export async function reconcileTransactions(
       if (existing.payee) {
         const existingPayeeRecord = await db.getPayee(existing.payee);
         existingPayeeValid = !!(existingPayeeRecord?.name);
-        logger.log('[Reconcile] existing.payee:', existing.payee, 'name:', existingPayeeRecord?.name, 'valid:', existingPayeeValid);
       }
-      logger.log('[Reconcile] trans.payee:', trans.payee, 'trans.imported_payee:', trans.imported_payee);
 
       // Update the transaction
       // For payee: only keep existing if it's valid, otherwise use imported payee
@@ -556,7 +546,6 @@ export async function reconcileTransactions(
           const transPayeeRecord = await db.getPayee(trans.payee);
           transPayeeValid = !!(transPayeeRecord?.name);
         }
-        logger.log('[Reconcile] trans.payee valid:', transPayeeValid, 'inPayeesToCreate:', inPayeesToCreate);
       }
 
       // If trans.payee is invalid but we have imported_payee name, try to find or create a valid payee
@@ -566,28 +555,24 @@ export async function reconcileTransactions(
         if (payeeInCreate) {
           transPayeeId = payeeInCreate.id;
           transPayeeValid = true;
-          logger.log('[Reconcile] Found payee in payeesToCreate:', payeeInCreate.id, payeeInCreate.name);
         } else {
           // Then check the database
           const payeeByName = await db.getPayeeByName(trans.imported_payee);
           if (payeeByName?.id) {
             transPayeeId = payeeByName.id;
             transPayeeValid = true;
-            logger.log('[Reconcile] Found payee by name fallback:', payeeByName.id, payeeByName.name);
           } else {
             // Create new payee if not found
             const newPayee = { id: uuidv4(), name: trans.imported_payee };
             payeesToCreate.set(trans.imported_payee.toLowerCase(), newPayee);
             transPayeeId = newPayee.id;
             transPayeeValid = true;
-            logger.log('[Reconcile] Created new payee:', newPayee.id, newPayee.name);
           }
         }
       }
 
       // Use existing payee if valid, otherwise use trans.payee if valid, otherwise null
       const finalPayee = existingPayeeValid ? existing.payee : (transPayeeValid ? transPayeeId : null);
-      logger.log('[Reconcile] Final payee decision:', finalPayee);
       const updates = {
         imported_id: trans.imported_id || null,
         payee: finalPayee,
@@ -665,25 +650,7 @@ export async function reconcileTransactions(
   if (!isPreview) {
     await createNewPayees(payeesToCreate, [...added, ...updated]);
     await batchUpdateTransactions({ added, updated });
-
-    // Verify payee updates were applied
-    for (const u of updated) {
-      if (u.payee) {
-        const dbTrans = await db.getTransaction(u.id);
-        const dbPayee = u.payee ? await db.getPayee(u.payee) : null;
-        logger.log('[Verify] Transaction', u.id, 'payee after update:', dbTrans?.payee, 'expected:', u.payee, 'payee name:', dbPayee?.name);
-      }
-    }
   }
-
-  logger.log('Debug data for the operations:', {
-    transactionsStep1,
-    transactionsStep2,
-    transactionsStep3,
-    added,
-    updated,
-    updatedPreview,
-  });
 
   return {
     added: added.map(trans => trans.id),
