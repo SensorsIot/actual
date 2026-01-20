@@ -56,11 +56,24 @@ import {
   TableHeader,
   TableWithNavigator,
 } from '@desktop-client/components/table';
+import { useAccounts } from '@desktop-client/hooks/useAccounts';
 import { useCategories } from '@desktop-client/hooks/useCategories';
 import { useDateFormat } from '@desktop-client/hooks/useDateFormat';
 import { useSyncedPrefs } from '@desktop-client/hooks/useSyncedPrefs';
 import { reloadPayees } from '@desktop-client/payees/payeesSlice';
 import { useDispatch } from '@desktop-client/redux';
+
+type ImportSettings = {
+  migros_account: string;
+  revolut_bank_account: string;
+  cash_account: string;
+};
+
+const DEFAULT_IMPORT_SETTINGS: ImportSettings = {
+  migros_account: '',
+  revolut_bank_account: '',
+  cash_account: '',
+};
 
 function getFileType(filepath: string): string {
   const m = filepath.match(/\.([^.]*)$/);
@@ -173,6 +186,7 @@ export function ImportTransactionsModal({
   const [prefs, savePrefs] = useSyncedPrefs();
   const dispatch = useDispatch();
   const categories = useCategories();
+  const accounts = useAccounts();
 
   const [multiplierAmount, setMultiplierAmount] = useState('');
   const [loadingState, setLoadingState] = useState<
@@ -200,6 +214,9 @@ export function ImportTransactionsModal({
   const [isMigrosImport, setIsMigrosImport] = useState(false);
   // Track if this is a Swiss bank import (Migros or Revolut) - hide CSV options
   const [isSwissBankImport, setIsSwissBankImport] = useState(false);
+  // Import settings for Swiss bank imports
+  const [showSettingsDialog, setShowSettingsDialog] = useState(false);
+  const [importSettings, setImportSettings] = useState<ImportSettings>(DEFAULT_IMPORT_SETTINGS);
 
   // This cannot be set after parsing the file, because changing it
   // requires re-parsing the file. This is different from the other
@@ -399,6 +416,18 @@ export function ImportTransactionsModal({
       setIsSwissBankImport(!!swissBankFormat);
       setIsMigrosImport(swissBankFormat === 'migros');
       setIsRevolutImport(swissBankFormat === 'revolut');
+
+      // Fetch import settings for Swiss bank imports
+      if (swissBankFormat) {
+        const settings = await send('swiss-bank-get-import-settings', {});
+        setImportSettings(settings);
+        // Show settings dialog if required accounts not configured
+        if (swissBankFormat === 'migros' && !settings.migros_account) {
+          setShowSettingsDialog(true);
+        } else if (swissBankFormat === 'revolut' && !settings.revolut_bank_account) {
+          setShowSettingsDialog(true);
+        }
+      }
 
       let index = 0;
       const transactions = parsedTransactions.map(trans => {
@@ -942,6 +971,92 @@ export function ImportTransactionsModal({
                   <Trans>Select new file...</Trans>
                 </Button>
               )}
+            </View>
+          )}
+
+          {/* Swiss Bank Import Settings Dialog */}
+          {showSettingsDialog && (
+            <View
+              style={{
+                marginTop: 10,
+                padding: 15,
+                backgroundColor: theme.tableRowBackgroundHover,
+                borderRadius: 4,
+                border: '1px solid ' + theme.tableBorder,
+              }}
+            >
+              <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>
+                <Trans>Configure Import Settings</Trans>
+              </Text>
+              <Text style={{ marginBottom: 15, color: theme.pageTextSubdued }}>
+                {isMigrosImport ? (
+                  <Trans>Select the account where Migros transactions should be imported.</Trans>
+                ) : (
+                  <Trans>Select the accounts for Revolut transfers (bank account for top-ups/withdrawals, cash account for ATM).</Trans>
+                )}
+              </Text>
+
+              {isMigrosImport && (
+                <View style={{ marginBottom: 10 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Text style={{ width: 150 }}><Trans>Migros Account:</Trans></Text>
+                    <Select
+                      value={importSettings.migros_account}
+                      onChange={(e: string) => setImportSettings({ ...importSettings, migros_account: e })}
+                      options={[
+                        ['', t('Select an account...')],
+                        ...accounts.filter(a => !a.closed).map(a => [a.name, a.name]),
+                      ]}
+                      style={{ flex: 1 }}
+                    />
+                  </label>
+                </View>
+              )}
+
+              {isRevolutImport && (
+                <>
+                  <View style={{ marginBottom: 10 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <Text style={{ width: 150 }}><Trans>Bank Account:</Trans></Text>
+                      <Select
+                        value={importSettings.revolut_bank_account}
+                        onChange={(e: string) => setImportSettings({ ...importSettings, revolut_bank_account: e })}
+                        options={[
+                          ['', t('Select an account...')],
+                          ...accounts.filter(a => !a.closed).map(a => [a.name, a.name]),
+                        ]}
+                        style={{ flex: 1 }}
+                      />
+                    </label>
+                  </View>
+                  <View style={{ marginBottom: 10 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <Text style={{ width: 150 }}><Trans>Cash Account:</Trans></Text>
+                      <Select
+                        value={importSettings.cash_account}
+                        onChange={(e: string) => setImportSettings({ ...importSettings, cash_account: e })}
+                        options={[
+                          ['', t('Select an account...')],
+                          ...accounts.filter(a => !a.closed).map(a => [a.name, a.name]),
+                        ]}
+                        style={{ flex: 1 }}
+                      />
+                    </label>
+                  </View>
+                </>
+              )}
+
+              <View style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
+                <Button
+                  onPress={async () => {
+                    await send('swiss-bank-save-import-settings', { settings: importSettings });
+                    setShowSettingsDialog(false);
+                  }}
+                  variant="primary"
+                >
+                  <Trans>Save Settings</Trans>
+                </Button>
+              </View>
             </View>
           )}
 

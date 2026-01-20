@@ -440,13 +440,11 @@ function classifyRevolutTransaction(
 
 /**
  * Get Revolut account name based on currency.
- * CHF -> "Revolut", other currencies -> "Revolut {CURRENCY}"
+ * All currencies -> "Revolut {CURRENCY}" (e.g., "Revolut CHF", "Revolut EUR")
  */
 export function getRevolutAccountName(currency: string): string {
-  if (!currency || currency.toUpperCase() === 'CHF') {
-    return 'Revolut';
-  }
-  return `Revolut ${currency.toUpperCase()}`;
+  const curr = currency?.toUpperCase() || 'CHF';
+  return `Revolut ${curr}`;
 }
 
 /**

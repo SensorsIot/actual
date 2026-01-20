@@ -1189,10 +1189,8 @@ async function findOrCreateAccount(
 }
 
 function getRevolutAccountNameFromCurrency(currency: string): string {
-  if (!currency || currency.toUpperCase() === 'CHF') {
-    return 'Revolut';
-  }
-  return `Revolut ${currency.toUpperCase()}`;
+  const curr = currency?.toUpperCase() || 'CHF';
+  return `Revolut ${curr}`;
 }
 
 /**
