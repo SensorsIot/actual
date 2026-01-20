@@ -1303,9 +1303,12 @@ async function importRevolutTransactions({
       if (Object.keys(payeeMapping).length > 0) {
         for (const txn of currencyTransactions) {
           if (!txn.category) {
+            // Determine if expense based on amount (negative = expense)
+            const isExpense = typeof txn.amount === 'number' ? txn.amount < 0 : true;
             const categoryId = await getCategoryForPayee(
               txn.payee_name || txn.imported_payee,
               payeeMapping,
+              isExpense,
             );
             if (categoryId) {
               txn.category = categoryId;
@@ -1522,9 +1525,12 @@ async function importMigrosTransactions({
     if (Object.keys(payeeMapping).length > 0) {
       for (const txn of transactions) {
         if (!txn.category) {
+          // Determine if expense based on amount (negative = expense)
+          const isExpense = typeof txn.amount === 'number' ? txn.amount < 0 : true;
           const categoryId = await getCategoryForPayee(
             txn.payee_name || txn.imported_payee,
             payeeMapping,
+            isExpense,
           );
           if (categoryId) {
             txn.category = categoryId;
@@ -1570,9 +1576,12 @@ async function importMigrosTransactions({
 
 /**
  * Payee to category mapping type.
- * Key: payee name, Value: "CategoryGroup:Category" format
+ * Key: payee name, Value: object with expense or income category
  */
-type PayeeCategoryMapping = Record<string, string>;
+type PayeeCategoryMapping = Record<
+  string,
+  { expense?: string; income?: string }
+>;
 
 /**
  * Import settings stored in budget directory as import_settings.json
@@ -1908,49 +1917,122 @@ function calculateJaccardSimilarity(str1: string, str2: string): number {
   return intersection.size / union.size;
 }
 
-const SIMILARITY_THRESHOLD = 0.5; // 50% minimum match
+const SIMILARITY_THRESHOLD = 0.8; // 80% minimum match
+
+/**
+ * Extract category string from mapping entry based on transaction type.
+ * Returns the expense or income category, or whichever is available.
+ */
+function getCategoryFromMapping(
+  entry: { expense?: string; income?: string },
+  isExpense?: boolean,
+): string | null {
+  if (!entry) return null;
+
+  // If transaction type is specified, prefer that category
+  if (isExpense === true && entry.expense) return entry.expense;
+  if (isExpense === false && entry.income) return entry.income;
+
+  // Fallback: return whichever category is available
+  return entry.expense || entry.income || null;
+}
+
+/**
+ * Result from payee matching including the category string and match info.
+ */
+export type PayeeMatchResult = {
+  categoryString: string | null; // "Group:Category" format
+  categoryId: string | null; // Database category ID
+  matchedPayee: string | null; // The payee name that matched
+  matchScore: number; // 0-1 similarity score (1 = exact match)
+  isExpense: boolean; // Whether this is an expense category
+};
 
 export async function getCategoryForPayee(
   payeeName: string,
   mapping: PayeeCategoryMapping,
+  isExpense?: boolean,
 ): Promise<string | null> {
-  if (!payeeName || !mapping) return null;
+  const result = await getPayeeMatchResult(payeeName, mapping, isExpense);
+  return result.categoryId;
+}
+
+/**
+ * Get detailed match result for a payee including category string and match info.
+ */
+export async function getPayeeMatchResult(
+  payeeName: string,
+  mapping: PayeeCategoryMapping,
+  isExpense?: boolean,
+): Promise<PayeeMatchResult> {
+  const emptyResult: PayeeMatchResult = {
+    categoryString: null,
+    categoryId: null,
+    matchedPayee: null,
+    matchScore: 0,
+    isExpense: isExpense ?? true,
+  };
+
+  if (!payeeName || !mapping) return emptyResult;
+
+  let matchedEntry: { expense?: string; income?: string } | null = null;
+  let matchedPayee: string | null = null;
+  let matchScore = 0;
 
   // 1. Check exact match first (case-sensitive)
-  let catKey = mapping[payeeName];
+  if (mapping[payeeName]) {
+    matchedEntry = mapping[payeeName];
+    matchedPayee = payeeName;
+    matchScore = 1;
+  }
 
   // 2. Check exact match (normalized: lowercase, no accents)
-  if (!catKey) {
+  if (!matchedEntry) {
     const payeeNormalized = normalizeForMatching(payeeName);
-    for (const [mappedPayee, category] of Object.entries(mapping)) {
+    for (const [mappedPayee, entry] of Object.entries(mapping)) {
       if (normalizeForMatching(mappedPayee) === payeeNormalized) {
-        catKey = category;
+        matchedEntry = entry;
+        matchedPayee = mappedPayee;
+        matchScore = 1;
         break;
       }
     }
   }
 
   // 3. Find best Jaccard similarity match above threshold
-  if (!catKey) {
+  if (!matchedEntry) {
     let bestScore = 0;
-    let bestCategory: string | null = null;
 
-    for (const [mappedPayee, category] of Object.entries(mapping)) {
+    for (const [mappedPayee, entry] of Object.entries(mapping)) {
       const score = calculateJaccardSimilarity(payeeName, mappedPayee);
       if (score > bestScore && score >= SIMILARITY_THRESHOLD) {
         bestScore = score;
-        bestCategory = category;
+        matchedEntry = entry;
+        matchedPayee = mappedPayee;
+        matchScore = score;
       }
     }
-
-    catKey = bestCategory;
   }
 
-  if (!catKey) return null;
+  if (!matchedEntry) return emptyResult;
+
+  // Determine if this is an expense based on mapping
+  const entryIsExpense = !!matchedEntry.expense;
+  const catKey = getCategoryFromMapping(matchedEntry, isExpense);
+
+  if (!catKey) return emptyResult;
 
   // Parse "Group:Category" format and find category ID
   const [groupName, categoryName] = catKey.split(':');
-  if (!groupName || !categoryName) return null;
+  if (!groupName || !categoryName) {
+    return {
+      categoryString: catKey,
+      categoryId: null,
+      matchedPayee,
+      matchScore,
+      isExpense: entryIsExpense,
+    };
+  }
 
   const result = await db.first<{ id: string }>(
     `SELECT c.id
@@ -1960,7 +2042,13 @@ export async function getCategoryForPayee(
     [groupName, categoryName],
   );
 
-  return result?.id ?? null;
+  return {
+    categoryString: catKey,
+    categoryId: result?.id ?? null,
+    matchedPayee,
+    matchScore,
+    isExpense: entryIsExpense,
+  };
 }
 
 async function unlinkAccount({ id }: { id: AccountEntity['id'] }) {
