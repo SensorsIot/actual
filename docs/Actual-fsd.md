@@ -409,10 +409,16 @@ Detected when CSV has:
 
 ### Revolut Detection
 Detected when CSV first line starts with:
-- `Art,Produkt,` (German)
-- `Type,Product,` (English)
+- `Art,Produkt,` (German, comma-separated)
+- `Type,Product,` (English, comma-separated)
+- `Art\tProdukt\t` (German, tab-separated)
+- `Type\tProduct\t` (English, tab-separated)
 
-**Example header**: `Art,Produkt,Abschlussdatum,Beschreibung,Betrag,Währung,...`
+**Note:** Revolut exports can be either comma-separated or tab-separated. The parser auto-detects the delimiter by checking if the first line contains tabs.
+
+**Example headers**:
+- Comma: `Art,Produkt,Abschlussdatum,Beschreibung,Betrag,Währung,...`
+- Tab: `Art	Produkt	Abschlussdatum	Beschreibung	Betrag	Währung	...`
 
 ---
 
@@ -801,6 +807,45 @@ WHERE t.tombstone = 0 AND t.category IS NOT NULL
 GROUP BY p.name, cat_name
 ```
 
+### First-Time Import Prompt for Learn Categories
+
+When a user imports a Swiss bank CSV file for the first time and the `payee_category_mapping.json` is empty or missing, the import modal shows a prompt offering to learn categories from existing transactions.
+
+**User Flow:**
+
+1. User selects a Swiss bank CSV file (Migros or Revolut)
+2. System detects that `payee_category_mapping.json` is empty
+3. **Prompt dialog appears** with two options:
+   - **Learn Categories**: Scan existing transactions and build mappings
+   - **Skip**: Continue without learning (use empty mappings)
+4. If "Learn" clicked:
+   - System calls `swiss-bank-learn-categories` handler
+   - Mappings are extracted from existing categorized transactions
+   - Saved to `payee_category_mapping.json`
+   - Import continues with auto-categorization enabled
+5. If "Skip" clicked:
+   - Import continues without pre-populated categories
+
+**Implementation:**
+
+```typescript
+// Check if mapping is empty before showing transactions
+if (swissBankFormat && transactions.length > 0) {
+  const existingMapping = await send('swiss-bank-get-payee-mapping', {});
+  const mappingIsEmpty = !existingMapping ||
+    (Object.keys(existingMapping).length === 0) ||
+    (!existingMapping.expense || Object.keys(existingMapping.expense).length === 0) &&
+    (!existingMapping.income || Object.keys(existingMapping.income).length === 0);
+
+  if (mappingIsEmpty) {
+    setShowLearnCategoriesPrompt(true);
+    return; // Wait for user response before continuing
+  }
+}
+```
+
+**Rationale:** This feature provides a one-time bootstrap for the payee-category mapping system, leveraging the user's existing categorized transactions to enable automatic category suggestions for future imports.
+
 ### Balance Check and Correction
 
 Compare account balance with bank statement balance and create correction transaction if needed:
@@ -1033,16 +1078,33 @@ When the import modal loads:
 
 ### Auto-Learning Flow
 
-When a user assigns a category to a previously unmatched payee:
+Category mappings are automatically saved during import when:
 
-1. User selects a category from the dropdown
-2. On import, the new mapping is saved to `payee_category_mapping.json`
-3. Future imports will auto-match this payee
+1. **New payee**: User assigns a category to a previously unmatched payee
+2. **Changed category**: User modifies the pre-filled category suggestion
 
-**Example:**
+**Save Logic:**
+```typescript
+// Save mapping if: new payee OR category changed from proposed
+const isNewPayee = !catInfo.hasMatch;
+const categoryChanged = catInfo.selectedCategory !== catInfo.proposedCategory;
+
+if (catInfo.selectedCategory && catInfo.payee && (isNewPayee || categoryChanged)) {
+  // Save to payee_category_mapping.json
+}
+```
+
+**Example 1 - New Payee:**
 - User imports transaction: Payee="New Restaurant", Category not matched
 - User selects "Lebensunterhalt:Ausgehen" from dropdown
 - After import, mapping file is updated with the new entry
+
+**Example 2 - Changed Category:**
+- User imports transaction: Payee="Migros", Category pre-filled as "Lebensunterhalt:Lebensmittel"
+- User changes category to "Lebensunterhalt:Haushalt"
+- After import, mapping for "Migros" is updated to new category
+
+**Rationale:** This ensures the mapping file stays current with user preferences, not just initial assignments.
 
 ### Learning New Mappings
 
@@ -1123,7 +1185,7 @@ When a balance correction is needed but `revolut_differenz_category` is not conf
 **Settings Dialog:**
 
 In the Revolut import settings dialog, users can configure:
-- **Bank Account**: Account for top-ups/withdrawals (e.g., "Konto Migros 348-02")
+- **Topup Bank Account**: Account for top-ups and SWIFT/SEPA transfers (e.g., "Konto Migros 348-02")
 - **Cash Account**: Account for ATM withdrawals (e.g., "Kasse")
 - **Differenz Category**: Category for balance corrections (e.g., "Freizeit:Hobby")
 

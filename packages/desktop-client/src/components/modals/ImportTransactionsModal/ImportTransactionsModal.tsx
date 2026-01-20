@@ -779,9 +779,10 @@ export function ImportTransactionsModal({
       setIsLearningCategories(true);
       try {
         const result = await send('swiss-bank-learn-categories', {});
-        if (result && result.count > 0) {
-          // Show success message briefly (could use a toast, but for now just log)
-          console.log(`Learned ${result.count} payee-category mappings from existing transactions`);
+        if (result && result.mapping && result.count > 0) {
+          // Save the learned mapping to the file
+          await send('swiss-bank-save-payee-mapping', { mapping: result.mapping });
+          console.log(`Learned and saved ${result.count} payee-category mappings from existing transactions`);
         }
       } catch (err) {
         console.error('Failed to learn categories:', err);
@@ -789,15 +790,14 @@ export function ImportTransactionsModal({
       setIsLearningCategories(false);
     }
 
-    // Now continue with fetching category suggestions
-    await fetchCategorySuggestions();
-  }
+    // Now fetch and apply category suggestions to the waiting transactions
+    // Inline the logic here to avoid closure issues with state variables
+    if (transactions.length === 0) {
+      console.log('No transactions to apply categories to');
+      return;
+    }
 
-  // Fetch category suggestions for transactions (extracted to reuse after learning)
-  async function fetchCategorySuggestions() {
-    if (!isSwissBankImport || transactions.length === 0) return;
-
-    // Get unique payees with their amounts
+    // Get unique payees with their amounts from current transactions
     const payeeAmounts = new Map<string, number>();
     for (const trans of transactions) {
       const payee = (trans as ImportTransaction & { payee_name?: string; imported_payee?: string }).payee_name ||
@@ -809,7 +809,7 @@ export function ImportTransactionsModal({
       }
     }
 
-    // Call API to get proposed categories for unique payees
+    // Call API to get proposed categories using the freshly saved mapping
     const payeeInputs = Array.from(payeeAmounts.entries()).map(([payee, amount]) => ({
       payee,
       amount,
@@ -848,6 +848,7 @@ export function ImportTransactionsModal({
       });
     }
     setTransactionCategories(categoryMap);
+    console.log(`Applied ${categoryMap.size} category suggestions to transactions`);
   }
 
   async function onImport(close) {
