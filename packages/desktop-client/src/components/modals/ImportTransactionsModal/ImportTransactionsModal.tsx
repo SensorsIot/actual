@@ -880,6 +880,8 @@ export function ImportTransactionsModal({
       ).unwrap();
     } else if (isMigrosImport) {
       // Use Migros handler - routes to configured account from import_settings.json
+      console.log('[Migros Import] Starting import...');
+
       // Collect payee-category mappings BEFORE closing (access state while component is still mounted)
       const payeeMappingsToSave: Array<{ payee: string; category: string; isExpense: boolean }> = [];
       if (transactionCategories.size > 0) {
@@ -902,9 +904,12 @@ export function ImportTransactionsModal({
           })));
         }
       }
+      console.log('[Migros Import] Collected mappings:', payeeMappingsToSave.length);
 
       // Close the import modal BEFORE dispatching so the summary modal becomes topmost
+      console.log('[Migros Import] Closing modal...');
       close();
+      console.log('[Migros Import] Modal closed, dispatching import...');
 
       // Now run async operations (don't access component state after close)
       didChange = await dispatch(
@@ -912,21 +917,28 @@ export function ImportTransactionsModal({
           transactions: finalTransactions,
         }),
       ).unwrap();
+      console.log('[Migros Import] Import complete, didChange:', didChange);
 
       if (didChange) {
+        console.log('[Migros Import] Reloading payees...');
         await dispatch(reloadPayees());
+        console.log('[Migros Import] Payees reloaded');
       }
 
       // Save payee-category mappings (using pre-collected data)
       if (payeeMappingsToSave.length > 0) {
+        console.log('[Migros Import] Saving payee mappings...');
         await send('swiss-bank-add-payee-mappings', { newMappings: payeeMappingsToSave });
+        console.log('[Migros Import] Payee mappings saved');
       }
 
       // Reset loading state and notify
+      console.log('[Migros Import] Calling onImported callback...');
       setLoadingState(null);
       if (onImported) {
         onImported(didChange);
       }
+      console.log('[Migros Import] Done!');
       return;
     } else {
       // Use standard single-account import (for non-Swiss bank formats)
