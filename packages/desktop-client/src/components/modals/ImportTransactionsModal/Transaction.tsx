@@ -324,7 +324,7 @@ export function Transaction({
                 : t('New transaction')
           }
         >
-          {transaction.ignored ? t('Duplicate') : transaction.existing ? t('Update') : t('New')}
+          {transaction.ignored ? t('Skip') : transaction.existing ? t('Update') : t('New')}
         </Field>
       )}
       {inOutMode && (
