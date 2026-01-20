@@ -492,12 +492,10 @@ export function ImportTransactionsModal({
       });
 
       // Check if payee mapping is empty and offer to learn from existing transactions
+      // Mapping structure is Record<payeeName, { expense?: string; income?: string }>
       if (swissBankFormat && transactions.length > 0) {
         const existingMapping = await send('swiss-bank-get-payee-mapping', {});
-        const mappingIsEmpty = !existingMapping ||
-          (Object.keys(existingMapping).length === 0) ||
-          (!existingMapping.expense || Object.keys(existingMapping.expense).length === 0) &&
-          (!existingMapping.income || Object.keys(existingMapping.income).length === 0);
+        const mappingIsEmpty = !existingMapping || Object.keys(existingMapping).length === 0;
 
         if (mappingIsEmpty) {
           // Store transactions first, then show the learn categories modal
