@@ -312,15 +312,19 @@ export function Transaction({
             fontSize: '0.85em',
             color: transaction.ignored
               ? theme.errorText
-              : theme.noticeText,
+              : transaction.existing
+                ? theme.warningText
+                : theme.noticeText,
           }}
           title={
             transaction.ignored
               ? t('Already imported - will be skipped')
-              : t('New transaction')
+              : transaction.existing
+                ? t('Will update existing transaction')
+                : t('New transaction')
           }
         >
-          {transaction.ignored ? t('Duplicate') : t('New')}
+          {transaction.ignored ? t('Duplicate') : transaction.existing ? t('Update') : t('New')}
         </Field>
       )}
       {inOutMode && (
