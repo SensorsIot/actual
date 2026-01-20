@@ -1862,23 +1862,40 @@ async function checkAndCorrectBalance({
 }
 
 /**
+ * Normalize a string for matching: lowercase, remove accents, trim, unify whitespace.
+ */
+function normalizeForMatching(str: string): string {
+  return (
+    str
+      // Normalize Unicode to decomposed form (é -> e + combining accent)
+      .normalize('NFD')
+      // Remove combining diacritical marks (accents)
+      .replace(/[\u0300-\u036f]/g, '')
+      // Lowercase
+      .toLowerCase()
+      // Trim
+      .trim()
+  );
+}
+
+/**
+ * Split a normalized string into words.
+ */
+function getWords(str: string): Set<string> {
+  return new Set(
+    normalizeForMatching(str)
+      .split(/\s+/)
+      .filter(w => w.length > 0),
+  );
+}
+
+/**
  * Calculate word-based Jaccard similarity between two strings.
  * Returns a value between 0 and 1.
  */
 function calculateJaccardSimilarity(str1: string, str2: string): number {
-  // Split into lowercase words, filtering out empty strings
-  const words1 = new Set(
-    str1
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(w => w.length > 0),
-  );
-  const words2 = new Set(
-    str2
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(w => w.length > 0),
-  );
+  const words1 = getWords(str1);
+  const words2 = getWords(str2);
 
   if (words1.size === 0 || words2.size === 0) return 0;
 
@@ -1902,11 +1919,11 @@ export async function getCategoryForPayee(
   // 1. Check exact match first (case-sensitive)
   let catKey = mapping[payeeName];
 
-  // 2. Check exact match (case-insensitive)
+  // 2. Check exact match (normalized: lowercase, no accents)
   if (!catKey) {
-    const payeeLower = payeeName.toLowerCase();
+    const payeeNormalized = normalizeForMatching(payeeName);
     for (const [mappedPayee, category] of Object.entries(mapping)) {
-      if (mappedPayee.toLowerCase() === payeeLower) {
+      if (normalizeForMatching(mappedPayee) === payeeNormalized) {
         catKey = category;
         break;
       }
