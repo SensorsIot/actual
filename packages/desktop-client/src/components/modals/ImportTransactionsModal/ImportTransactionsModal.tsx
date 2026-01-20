@@ -1007,7 +1007,12 @@ export function ImportTransactionsModal({
       if (transactionCategories.size > 0) {
         const payeeMappings = new Map<string, { category: string; isExpense: boolean }>();
         for (const catInfo of transactionCategories.values()) {
-          if (!catInfo.hasMatch && catInfo.selectedCategory && catInfo.payee) {
+          // Save mapping if:
+          // - New payee (no existing match), OR
+          // - User changed the category from the proposed one
+          const isNewPayee = !catInfo.hasMatch;
+          const categoryChanged = catInfo.selectedCategory !== catInfo.proposedCategory;
+          if (catInfo.selectedCategory && catInfo.payee && (isNewPayee || categoryChanged)) {
             if (!payeeMappings.has(catInfo.payee)) {
               payeeMappings.set(catInfo.payee, {
                 category: catInfo.selectedCategory,
@@ -1065,14 +1070,18 @@ export function ImportTransactionsModal({
       await dispatch(reloadPayees());
     }
 
-    // Save new payee-category mappings for previously unmatched payees
+    // Save payee-category mappings for new payees or changed categories
     if (isSwissBankImport && transactionCategories.size > 0) {
       // Collect unique payee mappings (deduplicate by payee name)
       const payeeMappings = new Map<string, { category: string; isExpense: boolean }>();
 
       for (const catInfo of transactionCategories.values()) {
-        // Only save if: not previously matched AND user selected a category
-        if (!catInfo.hasMatch && catInfo.selectedCategory && catInfo.payee) {
+        // Save mapping if:
+        // - New payee (no existing match), OR
+        // - User changed the category from the proposed one
+        const isNewPayee = !catInfo.hasMatch;
+        const categoryChanged = catInfo.selectedCategory !== catInfo.proposedCategory;
+        if (catInfo.selectedCategory && catInfo.payee && (isNewPayee || categoryChanged)) {
           // Only add if not already in map (first occurrence wins)
           if (!payeeMappings.has(catInfo.payee)) {
             payeeMappings.set(catInfo.payee, {
