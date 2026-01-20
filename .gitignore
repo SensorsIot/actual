@@ -32,6 +32,8 @@ secrets.json
 # Personal Documentation
 /docs/*
 !docs/.gitkeep
+!docs/*-fsd.md
+!docs/*-FSD.md
 
 # MacOS
 .DS_Store
