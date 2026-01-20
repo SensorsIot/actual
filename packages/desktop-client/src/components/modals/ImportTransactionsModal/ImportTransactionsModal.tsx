@@ -1668,13 +1668,14 @@ export function ImportTransactionsModal({
 
 function getParseOptions(fileType: string, options: ParseFileOptions = {}) {
   if (fileType === 'csv') {
-    const { delimiter, hasHeaderRow, skipStartLines, skipEndLines } = options;
+    const { delimiter, hasHeaderRow, skipStartLines, skipEndLines, importNotes } = options;
     // Enable auto-detection of Swiss bank formats (Migros Bank, Revolut)
     return {
       delimiter,
       hasHeaderRow,
       skipStartLines,
       skipEndLines,
+      importNotes,
       swissBankFormat: 'auto' as const,
     };
   }
