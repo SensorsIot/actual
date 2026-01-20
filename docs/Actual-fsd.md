@@ -871,6 +871,19 @@ type RevolutImportResult = {
 
 The import modal for Swiss bank CSV files (Migros and Revolut) uses fixed column widths:
 
+```
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ Import Transactions                                                      [X]   │
+├────────────────────────────────────────────────────────────────────────────────┤
+│ [✓] │ Date         │ Payee                   │ Notes      │ Category    │ Amt  │
+├─────┼──────────────┼─────────────────────────┼────────────┼─────────────┼──────┤
+│ [✓] │ 2026-01-15   │ Migros                  │ Shopping   │ [Dropdown ▼]│-25.50│
+│ [✓] │ 2026-01-14   │ Coop                    │            │ [Dropdown ▼]│-15.00│
+│ [-] │ 2026-01-13   │ Duplicate Transaction   │            │ Living:Food │ Dup  │
+│ [✓] │ 2026-01-12   │ New Payee               │ Unknown    │ [Dropdown ▼]│-10.00│
+└─────┴──────────────┴─────────────────────────┴────────────┴─────────────┴──────┘
+```
+
 | Column | Width | Description |
 |--------|-------|-------------|
 | Checkbox | 31px | Select/deselect transaction |
@@ -882,6 +895,18 @@ The import modal for Swiss bank CSV files (Migros and Revolut) uses fixed column
 | Amount | 90px | Transaction amount |
 
 **Modal dimensions**: 1050px width × 450px height
+
+### Category Dropdown Behavior
+
+The category dropdown behavior differs based on transaction status:
+
+| Status | Dropdown | Behavior |
+|--------|----------|----------|
+| **New** | Interactive dropdown | User can select/change category |
+| **Duplicate** | Read-only text | Shows matched category, cannot edit |
+| **Existing** | Read-only text | Shows current category, cannot edit |
+
+**Rationale:** Duplicate transactions are skipped during import, so editing their category would have no effect.
 
 ### Per-Transaction Category Selection
 
@@ -917,16 +942,34 @@ Jaccard(A, B) = |A ∩ B| / |A ∪ B|
 ### Text Normalization
 
 Before comparison, payee names are normalized:
-1. **Unicode NFD normalization** - Decompose accented characters
-2. **Accent removal** - Strip diacritical marks (é → e, ü → u)
-3. **Lowercase conversion**
-4. **Trim whitespace**
 
-**Example**:
+```typescript
+function normalizeForMatching(text: string): string {
+  return text
+    .normalize('NFD')                      // Unicode decomposition
+    .replace(/[\u0300-\u036f]/g, '')       // Remove accents (é → e, ü → u)
+    .toLowerCase()                          // Lowercase
+    .trim();                                // Remove whitespace
+}
 ```
-"Café Müller" → "cafe muller"
-"MIGROS BASEL" → "migros basel"
+
+**Examples**:
 ```
+"Müller AG"    → "muller ag"
+"Café Zürich"  → "cafe zurich"
+"  MIGROS  "   → "migros"
+```
+
+### Matching Examples
+
+| Payee in CSV | Mapping Key | Similarity | Match? |
+|--------------|-------------|------------|--------|
+| `Coop City Basel` | `Coop` | 33% | No |
+| `Coop Pronto` | `Coop Pronto Lausen` | 67% | No |
+| `Lidl Lausen` | `Lidl Lausen` | 100% | Yes |
+| `TWINT Müller` | `Twint Muller` | 100% | Yes (after normalization) |
+| `Migros Basel` | `Migros` | 50% | No |
+| `Migros` | `Migros` | 100% | Yes |
 
 ### Matching Process
 
@@ -946,6 +989,49 @@ type MatchResult = {
 };
 ```
 
+### Category Assignment Logic
+
+Categories are assigned based on transaction direction (expense vs income):
+
+```typescript
+function getCategoryForTransaction(payee: string, amount: number, mapping: object): string | null {
+  const match = findBestMatch(payee, Object.keys(mapping));  // Jaccard ≥ 80%
+
+  if (!match) return null;
+
+  const categoryData = mapping[match];
+
+  if (amount < 0) {  // Expense (negative = money out)
+    return categoryData.expense || null;
+  } else {           // Income (positive = money in)
+    return categoryData.income || null;
+  }
+}
+```
+
+### Auto-Matching Flow
+
+When the import modal loads:
+
+1. Load `payee_category_mapping.json`
+2. For each transaction:
+   - Find best match using Jaccard similarity (≥80%)
+   - Pre-populate the category dropdown with the matched category
+3. Display proposed categories for user review
+
+### Auto-Learning Flow
+
+When a user assigns a category to a previously unmatched payee:
+
+1. User selects a category from the dropdown
+2. On import, the new mapping is saved to `payee_category_mapping.json`
+3. Future imports will auto-match this payee
+
+**Example:**
+- User imports transaction: Payee="New Restaurant", Category not matched
+- User selects "Lebensunterhalt:Ausgehen" from dropdown
+- After import, mapping file is updated with the new entry
+
 ### Learning New Mappings
 
 After import, if the user assigns a category to a transaction, the mapping is saved:
@@ -960,7 +1046,9 @@ type NewMapping = {
 };
 ```
 
-Mappings are stored in `payee_category_mapping.json`:
+### Mapping File Format
+
+Mappings are stored in `payee_category_mapping.json` with separate entries for expenses and income:
 
 ```json
 {
