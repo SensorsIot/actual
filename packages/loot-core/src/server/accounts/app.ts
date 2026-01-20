@@ -1862,31 +1862,71 @@ async function checkAndCorrectBalance({
 }
 
 /**
- * Apply payee-category mapping to a transaction.
- * Returns category ID if mapping found, null otherwise.
- * Supports partial matching like Python implementation.
+ * Calculate word-based Jaccard similarity between two strings.
+ * Returns a value between 0 and 1.
  */
+function calculateJaccardSimilarity(str1: string, str2: string): number {
+  // Split into lowercase words, filtering out empty strings
+  const words1 = new Set(
+    str1
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(w => w.length > 0),
+  );
+  const words2 = new Set(
+    str2
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(w => w.length > 0),
+  );
+
+  if (words1.size === 0 || words2.size === 0) return 0;
+
+  // Calculate intersection
+  const intersection = new Set([...words1].filter(w => words2.has(w)));
+
+  // Calculate union
+  const union = new Set([...words1, ...words2]);
+
+  return intersection.size / union.size;
+}
+
+const SIMILARITY_THRESHOLD = 0.5; // 50% minimum match
+
 export async function getCategoryForPayee(
   payeeName: string,
   mapping: PayeeCategoryMapping,
 ): Promise<string | null> {
   if (!payeeName || !mapping) return null;
 
-  // Check direct mapping first
+  // 1. Check exact match first (case-sensitive)
   let catKey = mapping[payeeName];
 
-  // Check partial match (case-insensitive) if no direct match
+  // 2. Check exact match (case-insensitive)
   if (!catKey) {
     const payeeLower = payeeName.toLowerCase();
     for (const [mappedPayee, category] of Object.entries(mapping)) {
-      if (
-        mappedPayee.toLowerCase().includes(payeeLower) ||
-        payeeLower.includes(mappedPayee.toLowerCase())
-      ) {
+      if (mappedPayee.toLowerCase() === payeeLower) {
         catKey = category;
         break;
       }
     }
+  }
+
+  // 3. Find best Jaccard similarity match above threshold
+  if (!catKey) {
+    let bestScore = 0;
+    let bestCategory: string | null = null;
+
+    for (const [mappedPayee, category] of Object.entries(mapping)) {
+      const score = calculateJaccardSimilarity(payeeName, mappedPayee);
+      if (score > bestScore && score >= SIMILARITY_THRESHOLD) {
+        bestScore = score;
+        bestCategory = category;
+      }
+    }
+
+    catKey = bestCategory;
   }
 
   if (!catKey) return null;
