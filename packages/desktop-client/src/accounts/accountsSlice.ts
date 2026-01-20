@@ -716,11 +716,13 @@ export const importMigrosTransactions = createAppAsyncThunk(
     });
 
     if (accountUsed) {
+      const addedCount = imported.added?.length || 0;
+      const updatedCount = imported.updated?.length || 0;
       dispatch(
         addNotification({
           notification: {
             type: 'message',
-            message: `Imported to ${accountUsed}: ${imported.added.length} added`,
+            message: `Imported to ${accountUsed}: ${addedCount} added, ${updatedCount} updated`,
           },
         }),
       );

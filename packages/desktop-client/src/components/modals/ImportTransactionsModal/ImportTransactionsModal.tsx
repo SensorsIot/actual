@@ -1306,7 +1306,7 @@ export function ImportTransactionsModal({
                   <ButtonWithLoading
                     variant="primary"
                     autoFocus
-                    isDisabled={count === 0}
+                    isDisabled={count === 0 || showSettingsDialog}
                     isLoading={loadingState === 'importing'}
                     onPress={() => {
                       onImport(close);

@@ -1296,6 +1296,22 @@ async function importRevolutTransactions({
         logger.info(`Created Revolut account: ${accountName}`);
       }
 
+      // Load payee-category mapping and apply to transactions
+      const payeeMapping = await getSwissBankPayeeMapping({});
+      if (Object.keys(payeeMapping).length > 0) {
+        for (const txn of currencyTransactions) {
+          if (!txn.category) {
+            const categoryId = await getCategoryForPayee(
+              txn.payee_name || txn.imported_payee,
+              payeeMapping,
+            );
+            if (categoryId) {
+              txn.category = categoryId;
+            }
+          }
+        }
+      }
+
       // Remove currency-specific fields before import
       const cleanTransactions: ImportTransactionEntity[] =
         currencyTransactions.map(txn => {
@@ -1471,6 +1487,12 @@ async function importMigrosTransactions({
     // Load settings from import_settings.json
     const importSettings = await getImportSettings();
     const accountName = importSettings.migros_account;
+
+    if (!accountName) {
+      result.errors.push({ message: 'Migros account not configured. Please configure import settings.' });
+      return result;
+    }
+
     result.accountUsed = accountName;
 
     // Find or create account
@@ -1488,6 +1510,23 @@ async function importMigrosTransactions({
       }
       accountId = await findOrCreateAccount(accountName, false);
       logger.info(`Created Migros account: ${accountName}`);
+    }
+
+    // Load payee-category mapping and apply to transactions
+    const payeeMapping = await getSwissBankPayeeMapping({});
+    if (Object.keys(payeeMapping).length > 0) {
+      for (const txn of transactions) {
+        if (!txn.category) {
+          const categoryId = await getCategoryForPayee(
+            txn.payee_name || txn.imported_payee,
+            payeeMapping,
+          );
+          if (categoryId) {
+            txn.category = categoryId;
+          }
+        }
+      }
+      logger.info(`Applied payee-category mapping to ${transactions.length} transactions`);
     }
 
     // Import transactions to this account
@@ -1539,9 +1578,9 @@ type ImportSettings = {
 };
 
 const DEFAULT_IMPORT_SETTINGS: ImportSettings = {
-  migros_account: 'Konto Migros 348-02',
-  revolut_bank_account: 'Konto Migros 348-02',
-  cash_account: 'Kasse',
+  migros_account: '',
+  revolut_bank_account: '',
+  cash_account: '',
 };
 
 /**
