@@ -524,16 +524,15 @@ async function parseRevolutCSV(
       currency,
     );
 
-    // Use start date timestamp for unique ID (timestamp is unique per transaction)
+    // Use start date + currency + amount for unique ID (keeps compatibility with existing data)
     const startDateStr = getRevolutField(
       row,
       'Started Date',
       'Datum des Beginns',
     );
-    // Just use timestamp as ID - it's unique enough and avoids amount/currency formatting issues
-    const uniqueId = `REV_${startDateStr}`
+    const uniqueId = `REV_${currency}_${startDateStr}_${betrag}`
       .replace(/\s+/g, '_')
-      .replace(/:/g, '-')
+      .replace(/:/g, '')
       .slice(0, 50);
 
     // Build notes with transaction type info
