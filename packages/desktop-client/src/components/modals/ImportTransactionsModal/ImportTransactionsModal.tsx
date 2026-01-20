@@ -226,6 +226,8 @@ export function ImportTransactionsModal({
   const [isMigrosImport, setIsMigrosImport] = useState(false);
   // Track if this is a Swiss bank import (Migros or Revolut) - hide CSV options
   const [isSwissBankImport, setIsSwissBankImport] = useState(false);
+  // Effective account ID for duplicate detection (may differ from accountId for Swiss bank imports)
+  const [previewAccountId, setPreviewAccountId] = useState<string>(accountId);
   // Import settings for Swiss bank imports
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [importSettings, setImportSettings] = useState<ImportSettings>(DEFAULT_IMPORT_SETTINGS);
@@ -367,9 +369,10 @@ export function ImportTransactionsModal({
       }
 
       // Retreive the transactions that would be updated (along with the existing trx)
+      // Use previewAccountId for duplicate detection (may differ from accountId for Swiss bank imports)
       const previewTrx = await dispatch(
         importPreviewTransactions({
-          accountId,
+          accountId: previewAccountId,
           transactions: previewTransactions,
         }),
       ).unwrap();
@@ -418,7 +421,7 @@ export function ImportTransactionsModal({
           return next;
         }, []);
     },
-    [accountId, categories.list, clearOnImport, dispatch],
+    [previewAccountId, categories.list, clearOnImport, dispatch],
   );
 
   const parse = useCallback(
@@ -454,6 +457,22 @@ export function ImportTransactionsModal({
           setShowSettingsDialog(true);
         }
 
+        // Set the correct account for duplicate detection
+        // For Migros imports, use the configured Migros account
+        // For Revolut imports, use Revolut CHF account
+        let targetAccountName: string | null = null;
+        if (swissBankFormat === 'migros' && settings.migros_account) {
+          targetAccountName = settings.migros_account;
+        } else if (swissBankFormat === 'revolut') {
+          targetAccountName = 'Revolut CHF';
+        }
+
+        if (targetAccountName) {
+          const targetAccount = accounts.find(a => a.name === targetAccountName && !a.closed);
+          if (targetAccount) {
+            setPreviewAccountId(targetAccount.id);
+          }
+        }
       }
 
       let index = 0;
@@ -1077,6 +1096,7 @@ export function ImportTransactionsModal({
     multiplierAmount,
     loadingState,
     parsedTransactions.length,
+    previewAccountId, // Re-run preview when the correct account is determined for Swiss bank imports
   ]);
 
   const headers: ComponentProps<typeof TableHeader>['headers'] = [
