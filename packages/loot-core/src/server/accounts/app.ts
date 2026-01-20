@@ -75,6 +75,7 @@ export type AccountHandlers = {
   'swiss-bank-balance-check': typeof checkAndCorrectBalance;
   'swiss-bank-match-payees': typeof matchPayeesToCategories;
   'swiss-bank-add-payee-mappings': typeof addPayeeMappings;
+  'revolut-balance-check': typeof checkRevolutBalanceAndCorrect;
 };
 
 async function updateAccount({
@@ -1465,6 +1466,140 @@ async function importRevolutTransactions({
 }
 
 /**
+ * Check Revolut CHF balance against expected value and book difference as "Revolut Differenz".
+ * Used after importing foreign currency transactions to correct exchange rate differences.
+ */
+type RevolutBalanceCheckResult = {
+  success: boolean;
+  accountBalance: number; // Current balance in cents
+  expectedBalance: number; // Expected balance in cents
+  difference: number; // Difference in cents (positive = need to add, negative = need to subtract)
+  correctionBooked: boolean;
+  error?: string;
+};
+
+async function checkRevolutBalanceAndCorrect({
+  expectedTotalCHF,
+}: {
+  expectedTotalCHF: number; // Expected total in cents
+}): Promise<RevolutBalanceCheckResult> {
+  const result: RevolutBalanceCheckResult = {
+    success: false,
+    accountBalance: 0,
+    expectedBalance: expectedTotalCHF,
+    difference: 0,
+    correctionBooked: false,
+  };
+
+  try {
+    // Find Revolut CHF account
+    const revolutCHF = await db.first<db.DbAccount>(
+      'SELECT id FROM accounts WHERE name = ? AND tombstone = 0',
+      ['Revolut CHF'],
+    );
+
+    if (!revolutCHF) {
+      result.error = 'Revolut CHF account not found';
+      return result;
+    }
+
+    // Calculate current balance
+    const balanceResult = await db.first<{ total: number }>(
+      'SELECT SUM(amount) as total FROM transactions WHERE acct = ? AND tombstone = 0',
+      [revolutCHF.id],
+    );
+
+    result.accountBalance = balanceResult?.total || 0;
+    result.difference = expectedTotalCHF - result.accountBalance;
+
+    // If difference is 0 or very small (< 1 cent), no correction needed
+    if (Math.abs(result.difference) < 1) {
+      result.success = true;
+      result.difference = 0;
+      return result;
+    }
+
+    // Load import settings for category
+    const importSettings = await getImportSettings();
+    const categoryName = importSettings.revolut_differenz_category || 'Hobby';
+
+    // Find category by name (search in format "Group:Category" or just "Category")
+    let categoryId: string | null = null;
+
+    // First try exact match with Group:Category format
+    if (categoryName.includes(':')) {
+      const [groupName, catName] = categoryName.split(':');
+      const group = await db.first<{ id: string }>(
+        'SELECT id FROM category_groups WHERE name = ? AND tombstone = 0',
+        [groupName],
+      );
+      if (group) {
+        const cat = await db.first<{ id: string }>(
+          'SELECT id FROM categories WHERE name = ? AND cat_group = ? AND tombstone = 0',
+          [catName, group.id],
+        );
+        categoryId = cat?.id || null;
+      }
+    }
+
+    // If not found, try just category name
+    if (!categoryId) {
+      const cat = await db.first<{ id: string }>(
+        'SELECT id FROM categories WHERE name = ? AND tombstone = 0',
+        [categoryName],
+      );
+      categoryId = cat?.id || null;
+    }
+
+    if (!categoryId) {
+      logger.warn(`Category "${categoryName}" not found for Revolut Differenz, booking without category`);
+    }
+
+    // Find or create "Revolut Differenz" payee
+    let payee = await db.first<{ id: string }>(
+      'SELECT id FROM payees WHERE name = ? AND tombstone = 0',
+      ['Revolut Differenz'],
+    );
+
+    if (!payee) {
+      const payeeId = uuidv4();
+      await db.insertPayee({
+        id: payeeId,
+        name: 'Revolut Differenz',
+      });
+      payee = { id: payeeId };
+    }
+
+    // Create correction transaction
+    const txnId = uuidv4();
+    const today = monthUtils.currentDay();
+
+    await db.insertTransaction({
+      id: txnId,
+      account: revolutCHF.id,
+      amount: result.difference,
+      payee: payee.id,
+      category: categoryId,
+      date: parseInt(today.replace(/-/g, ''), 10),
+      notes: `Saldokorrektur: Erwartet ${(expectedTotalCHF / 100).toFixed(2)} CHF, Berechnet ${(result.accountBalance / 100).toFixed(2)} CHF`,
+      cleared: true,
+    });
+
+    result.correctionBooked = true;
+    result.success = true;
+
+    logger.info(
+      `Revolut Differenz: Booked ${(result.difference / 100).toFixed(2)} CHF to Revolut CHF (expected: ${(expectedTotalCHF / 100).toFixed(2)}, actual: ${(result.accountBalance / 100).toFixed(2)})`,
+    );
+
+    return result;
+  } catch (err) {
+    result.error = err instanceof Error ? err.message : 'Unknown error';
+    return result;
+  }
+}
+
+/**
  * Import Migros CSV transactions to the configured account.
  * Uses migros_account from import_settings.json instead of selected account.
  */
@@ -1592,12 +1727,14 @@ type ImportSettings = {
   migros_account: string; // Account for Migros CSV imports
   revolut_bank_account: string; // Bank account for Revolut transfers
   cash_account: string; // Cash account for ATM withdrawals
+  revolut_differenz_category: string; // Category for Revolut exchange rate differences (default: Hobby)
 };
 
 const DEFAULT_IMPORT_SETTINGS: ImportSettings = {
   migros_account: '',
   revolut_bank_account: '',
   cash_account: '',
+  revolut_differenz_category: 'Freizeit:Hobby',
 };
 
 /**
@@ -2311,4 +2448,8 @@ app.method('swiss-bank-add-payee-mappings', addPayeeMappings);
 app.method(
   'swiss-bank-balance-check',
   mutator(undoable(checkAndCorrectBalance)),
+);
+app.method(
+  'revolut-balance-check',
+  mutator(undoable(checkRevolutBalanceAndCorrect)),
 );

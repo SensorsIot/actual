@@ -279,12 +279,14 @@ export function Transaction({
             }}
             options={[
               ['', ''],
-              ...categoryGroups.flatMap(group =>
-                (group.categories || []).map(cat => {
-                  const fullName = `${group.name}:${cat.name}`;
-                  return [fullName, fullName] as [string, string];
-                })
-              ),
+              ...categoryGroups
+                .flatMap(group =>
+                  (group.categories || []).map(cat => {
+                    const fullName = `${group.name}:${cat.name}`;
+                    return [fullName, fullName] as [string, string];
+                  })
+                )
+                .sort((a, b) => a[0].localeCompare(b[0])),
             ]}
             style={{
               fontSize: '0.85em',
