@@ -880,11 +880,43 @@ export function ImportTransactionsModal({
       ).unwrap();
     } else if (isMigrosImport) {
       // Use Migros handler - routes to configured account from import_settings.json
+      // Close the import modal BEFORE dispatching so the summary modal becomes topmost
+      close();
       didChange = await dispatch(
         importMigrosTransactions({
           transactions: finalTransactions,
         }),
       ).unwrap();
+      // Summary modal is now visible - handle post-import tasks and return (don't call close() again)
+      if (didChange) {
+        await dispatch(reloadPayees());
+      }
+      // Save new payee-category mappings for previously unmatched payees
+      if (transactionCategories.size > 0) {
+        const payeeMappings = new Map<string, { category: string; isExpense: boolean }>();
+        for (const catInfo of transactionCategories.values()) {
+          if (!catInfo.hasMatch && catInfo.selectedCategory && catInfo.payee) {
+            if (!payeeMappings.has(catInfo.payee)) {
+              payeeMappings.set(catInfo.payee, {
+                category: catInfo.selectedCategory,
+                isExpense: catInfo.isExpense,
+              });
+            }
+          }
+        }
+        if (payeeMappings.size > 0) {
+          const newMappings = Array.from(payeeMappings.entries()).map(([payee, info]) => ({
+            payee,
+            category: info.category,
+            isExpense: info.isExpense,
+          }));
+          await send('swiss-bank-add-payee-mappings', { newMappings });
+        }
+      }
+      if (onImported) {
+        onImported(didChange);
+      }
+      return;
     } else {
       // Use standard single-account import (for non-Swiss bank formats)
       didChange = await dispatch(
