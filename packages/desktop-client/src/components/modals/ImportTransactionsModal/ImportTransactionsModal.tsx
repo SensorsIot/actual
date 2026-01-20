@@ -245,6 +245,9 @@ export function ImportTransactionsModal({
     accountBalance: number;
   } | null>(null);
   const [selectedDifferenzCategory, setSelectedDifferenzCategory] = useState<string>('');
+  // Learn categories prompt (shown when payee mapping is empty on first Swiss bank import)
+  const [showLearnCategoriesPrompt, setShowLearnCategoriesPrompt] = useState(false);
+  const [isLearningCategories, setIsLearningCategories] = useState(false);
 
   // This cannot be set after parsing the file, because changing it
   // requires re-parsing the file. This is different from the other
@@ -489,6 +492,23 @@ export function ImportTransactionsModal({
         trans.selected = true;
         return trans;
       });
+
+      // Check if payee mapping is empty and offer to learn from existing transactions
+      if (swissBankFormat && transactions.length > 0) {
+        const existingMapping = await send('swiss-bank-get-payee-mapping', {});
+        const mappingIsEmpty = !existingMapping ||
+          (Object.keys(existingMapping).length === 0) ||
+          (!existingMapping.expense || Object.keys(existingMapping.expense).length === 0) &&
+          (!existingMapping.income || Object.keys(existingMapping.income).length === 0);
+
+        if (mappingIsEmpty) {
+          setShowLearnCategoriesPrompt(true);
+          // Don't continue with category matching yet - wait for user decision
+          setTransactions(transactions);
+          setLoadingState(null);
+          return;
+        }
+      }
 
       // Fetch proposed categories for Swiss bank imports (after transactions have IDs)
       if (swissBankFormat && transactions.length > 0) {
@@ -749,6 +769,85 @@ export function ImportTransactionsModal({
       newMap.set(transactionId, notes);
       return newMap;
     });
+  }
+
+  // Handle learning categories from existing transactions
+  async function handleLearnCategories(shouldLearn: boolean) {
+    setShowLearnCategoriesPrompt(false);
+
+    if (shouldLearn) {
+      setIsLearningCategories(true);
+      try {
+        const result = await send('swiss-bank-learn-categories', {});
+        if (result && result.count > 0) {
+          // Show success message briefly (could use a toast, but for now just log)
+          console.log(`Learned ${result.count} payee-category mappings from existing transactions`);
+        }
+      } catch (err) {
+        console.error('Failed to learn categories:', err);
+      }
+      setIsLearningCategories(false);
+    }
+
+    // Now continue with fetching category suggestions
+    await fetchCategorySuggestions();
+  }
+
+  // Fetch category suggestions for transactions (extracted to reuse after learning)
+  async function fetchCategorySuggestions() {
+    if (!isSwissBankImport || transactions.length === 0) return;
+
+    // Get unique payees with their amounts
+    const payeeAmounts = new Map<string, number>();
+    for (const trans of transactions) {
+      const payee = (trans as ImportTransaction & { payee_name?: string; imported_payee?: string }).payee_name ||
+        (trans as ImportTransaction & { imported_payee?: string }).imported_payee ||
+        trans.payee || '';
+      const amount = typeof trans.amount === 'number' ? trans.amount : 0;
+      if (payee && !payeeAmounts.has(payee)) {
+        payeeAmounts.set(payee, amount);
+      }
+    }
+
+    // Call API to get proposed categories for unique payees
+    const payeeInputs = Array.from(payeeAmounts.entries()).map(([payee, amount]) => ({
+      payee,
+      amount,
+    }));
+    const matchResults = await send('swiss-bank-match-payees', { payees: payeeInputs });
+
+    // Create a map of payee -> match result for quick lookup
+    const payeeMatchMap = new Map<string, {
+      proposedCategory: string | null;
+      hasMatch: boolean;
+      isExpense: boolean;
+    }>();
+    for (const result of matchResults) {
+      payeeMatchMap.set(result.payee, {
+        proposedCategory: result.proposedCategory,
+        hasMatch: result.hasMatch,
+        isExpense: result.isExpense,
+      });
+    }
+
+    // Create per-transaction category map
+    const categoryMap: TransactionCategoryMap = new Map();
+    for (const trans of transactions) {
+      const payee = (trans as ImportTransaction & { payee_name?: string; imported_payee?: string }).payee_name ||
+        (trans as ImportTransaction & { imported_payee?: string }).imported_payee ||
+        trans.payee || '';
+      const trxId = (trans as ImportTransaction & { trx_id: string }).trx_id;
+      const match = payeeMatchMap.get(payee);
+
+      categoryMap.set(trxId, {
+        selectedCategory: match?.proposedCategory || null,
+        proposedCategory: match?.proposedCategory || null,
+        hasMatch: match?.hasMatch || false,
+        payee,
+        isExpense: match?.isExpense ?? true,
+      });
+    }
+    setTransactionCategories(categoryMap);
   }
 
   async function onImport(close) {
@@ -1353,6 +1452,45 @@ export function ImportTransactionsModal({
                   variant="primary"
                 >
                   <Trans>Save Settings</Trans>
+                </Button>
+              </View>
+            </View>
+          )}
+
+          {/* Learn Categories Prompt (shown when payee mapping is empty) */}
+          {showLearnCategoriesPrompt && (
+            <View
+              style={{
+                marginTop: 10,
+                padding: 15,
+                backgroundColor: theme.tableRowBackgroundHover,
+                borderRadius: 4,
+                border: '1px solid ' + theme.tableBorder,
+              }}
+            >
+              <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>
+                <Trans>Learn Categories from Existing Transactions?</Trans>
+              </Text>
+              <Text style={{ marginBottom: 15, color: theme.pageTextSubdued }}>
+                <Trans>
+                  No category mappings found. Would you like to automatically learn
+                  payee-category associations from your existing categorized transactions?
+                  This will help auto-fill categories for future imports.
+                </Trans>
+              </Text>
+              <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+                <Button
+                  onPress={() => handleLearnCategories(false)}
+                  isDisabled={isLearningCategories}
+                >
+                  <Trans>Skip</Trans>
+                </Button>
+                <Button
+                  variant="primary"
+                  onPress={() => handleLearnCategories(true)}
+                  isDisabled={isLearningCategories}
+                >
+                  {isLearningCategories ? <Trans>Learning...</Trans> : <Trans>Learn Categories</Trans>}
                 </Button>
               </View>
             </View>
