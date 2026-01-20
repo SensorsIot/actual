@@ -922,6 +922,8 @@ export function ImportTransactionsModal({
         await send('swiss-bank-add-payee-mappings', { newMappings: payeeMappingsToSave });
       }
 
+      // Reset loading state and notify
+      setLoadingState(null);
       if (onImported) {
         onImported(didChange);
       }
