@@ -524,10 +524,19 @@ export async function reconcileTransactions(
         date: db.fromDateRepr(match.date),
       };
 
+      // Check if existing payee is valid (has a name) before preferring it
+      // This handles cases where existing.payee is a UUID pointing to a deleted/empty payee
+      let existingPayeeValid = false;
+      if (existing.payee) {
+        const existingPayeeRecord = await db.getPayee(existing.payee);
+        existingPayeeValid = !!(existingPayeeRecord?.name);
+      }
+
       // Update the transaction
+      // For payee: only keep existing if it's valid, otherwise use imported payee
       const updates = {
         imported_id: trans.imported_id || null,
-        payee: existing.payee || trans.payee || null,
+        payee: existingPayeeValid ? existing.payee : (trans.payee || null),
         category: existing.category || trans.category || null,
         imported_payee: trans.imported_payee || null,
         notes: existing.notes || trans.notes || null,
