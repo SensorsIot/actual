@@ -870,8 +870,9 @@ export function ImportTransactionsModal({
 
       trans = fieldMappings ? applyFieldMappings(trans, fieldMappings) : trans;
 
+      // Swiss bank imports already have dates in YYYY-MM-DD format, skip re-parsing
       const date =
-        isOfxFile(filetype) || isCamtFile(filetype)
+        isOfxFile(filetype) || isCamtFile(filetype) || isSwissBankImport
           ? trans.date
           : parseDate(trans.date, parseDateFormat);
       if (date == null) {

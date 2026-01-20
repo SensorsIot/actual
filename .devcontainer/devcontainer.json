@@ -7,5 +7,17 @@
   // "image": "mcr.microsoft.com/devcontainers/typescript-node:0-16",
   "service": "actual-development",
   "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
-  "postCreateCommand": "yarn install"
+  "postCreateCommand": "yarn install",
+  "containerEnv": {
+    "INFLUXDB_TOKEN": "${localEnv:INFLUXDB_TOKEN}",
+    "INFLUXDB_URL": "${localEnv:INFLUXDB_URL}",
+    "INFLUXDB_ORG": "${localEnv:INFLUXDB_ORG}",
+    "HA_TOKEN": "${localEnv:HA_TOKEN}",
+    "HA_TOKEN_NODERED": "${localEnv:HA_TOKEN_NODERED}",
+    "HA_URL": "${localEnv:HA_URL}",
+    "GRAFANA_URL": "${localEnv:GRAFANA_URL}",
+    "GRAFANA_USER": "${localEnv:GRAFANA_USER}",
+    "GRAFANA_PASSWORD": "${localEnv:GRAFANA_PASSWORD}",
+    "TELEGRAM_BOT_TOKEN": "${localEnv:TELEGRAM_BOT_TOKEN}"
+  }
 }
