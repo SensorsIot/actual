@@ -41,7 +41,10 @@ export function LearnCategoriesModal({
         setLearnedCount(count);
         console.log(`Learned and saved ${count} payee-category mappings`);
       } else {
+        // Save empty mapping structure so modal doesn't appear again
+        await send('swiss-bank-save-payee-mapping', { mapping: { expense: {}, income: {} } });
         setLearnedCount(0);
+        console.log('No categorized transactions found, saved empty mapping');
       }
     } catch (err) {
       console.error('Failed to learn categories:', err);
@@ -56,9 +59,16 @@ export function LearnCategoriesModal({
     }, count > 0 ? 1000 : 100);
   }
 
-  function handleSkip(close: () => void) {
-    onSkip?.();
+  async function handleSkip(close: () => void) {
+    // Save empty mapping structure so modal doesn't appear again
+    try {
+      await send('swiss-bank-save-payee-mapping', { mapping: { expense: {}, income: {} } });
+      console.log('Skipped learning, saved empty mapping');
+    } catch (err) {
+      console.error('Failed to save empty mapping:', err);
+    }
     close();
+    onSkip?.();
   }
 
   return (
