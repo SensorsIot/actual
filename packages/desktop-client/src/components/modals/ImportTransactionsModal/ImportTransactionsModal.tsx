@@ -369,19 +369,60 @@ export function ImportTransactionsModal({
         });
       }
 
-      // Retreive the transactions that would be updated (along with the existing trx)
-      // Use previewAccountId for duplicate detection (may differ from accountId for Swiss bank imports)
-      const previewTrx = await dispatch(
-        importPreviewTransactions({
-          accountId: previewAccountId,
-          transactions: previewTransactions,
-        }),
-      ).unwrap();
-      const matchedUpdateMap = previewTrx.reduce((map, entry) => {
-        // @ts-expect-error - entry.transaction might not have trx_id property
-        map[entry.transaction.trx_id] = entry;
-        return map;
-      }, {});
+      // Retrieve the transactions that would be updated (along with the existing trx)
+      // For Revolut multi-currency imports, check each transaction against its respective currency account
+      let matchedUpdateMap: Record<string, { transaction: unknown; existing?: unknown; ignored?: boolean; tombstone?: boolean }> = {};
+
+      if (isRevolutImport) {
+        // Group transactions by currency
+        const byCurrency = new Map<string, typeof previewTransactions>();
+        for (const trans of previewTransactions) {
+          const currency = (trans as { currency?: string }).currency || 'CHF';
+          if (!byCurrency.has(currency)) {
+            byCurrency.set(currency, []);
+          }
+          byCurrency.get(currency)!.push(trans);
+        }
+
+        // For each currency, find the account and check for duplicates
+        for (const [currency, currencyTransactions] of byCurrency) {
+          const accountName = `Revolut ${currency.toUpperCase()}`;
+          const currencyAccount = accounts.find(a => a.name === accountName && !a.closed);
+
+          if (currencyAccount) {
+            const previewTrx = await dispatch(
+              importPreviewTransactions({
+                accountId: currencyAccount.id,
+                transactions: currencyTransactions,
+              }),
+            ).unwrap();
+
+            for (const entry of previewTrx) {
+              // @ts-expect-error - entry.transaction might not have trx_id property
+              matchedUpdateMap[entry.transaction.trx_id] = entry;
+            }
+          } else {
+            // Account doesn't exist yet, all transactions are new
+            for (const trans of currencyTransactions) {
+              // @ts-expect-error - trans might not have trx_id property
+              matchedUpdateMap[trans.trx_id] = { transaction: trans, existing: undefined, ignored: false };
+            }
+          }
+        }
+      } else {
+        // Standard single-account preview
+        const previewTrx = await dispatch(
+          importPreviewTransactions({
+            accountId: previewAccountId,
+            transactions: previewTransactions,
+          }),
+        ).unwrap();
+
+        for (const entry of previewTrx) {
+          // @ts-expect-error - entry.transaction might not have trx_id property
+          matchedUpdateMap[entry.transaction.trx_id] = entry;
+        }
+      }
 
       return transactions
         .filter(trans => !trans.isMatchedTransaction)
@@ -422,7 +463,7 @@ export function ImportTransactionsModal({
           return next;
         }, []);
     },
-    [previewAccountId, categories.list, clearOnImport, dispatch],
+    [previewAccountId, categories.list, clearOnImport, dispatch, isRevolutImport, accounts],
   );
 
   const parse = useCallback(

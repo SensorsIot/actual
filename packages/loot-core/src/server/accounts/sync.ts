@@ -727,6 +727,12 @@ export async function matchTransactions(
       const sevenDaysAfter = db.toDateRepr(monthUtils.addDays(trans.date, 7));
       // strictIdChecking has the added behaviour of only matching on transactions with no import ID
       // if the transaction being imported has an import ID.
+      // Allow 3% tolerance on amount for fuzzy matching (handles exchange rate differences)
+      const transAmount = trans.amount || 0;
+      const amountTolerance = Math.abs(Math.round(transAmount * 0.03));
+      const amountMin = transAmount - amountTolerance;
+      const amountMax = transAmount + amountTolerance;
+
       if (strictIdChecking) {
         fuzzyDataset = await db.all<
           Pick<
@@ -749,13 +755,14 @@ export async function matchTransactions(
           WHERE
             -- If both ids are set, and we didn't match earlier then skip dedup
             (imported_id IS NULL OR ? IS NULL)
-            AND date >= ? AND date <= ? AND amount = ?
+            AND date >= ? AND date <= ? AND amount >= ? AND amount <= ?
             AND account = ?`,
           [
             trans.imported_id || null,
             sevenDaysBefore,
             sevenDaysAfter,
-            trans.amount || 0,
+            amountMin,
+            amountMax,
             acctId,
           ],
         );
@@ -778,8 +785,8 @@ export async function matchTransactions(
         >(
           `SELECT id, is_parent, date, imported_id, payee, imported_payee, category, notes, reconciled, cleared, amount
           FROM v_transactions
-          WHERE date >= ? AND date <= ? AND amount = ? AND account = ?`,
-          [sevenDaysBefore, sevenDaysAfter, trans.amount || 0, acctId],
+          WHERE date >= ? AND date <= ? AND amount >= ? AND amount <= ? AND account = ?`,
+          [sevenDaysBefore, sevenDaysAfter, amountMin, amountMax, acctId],
         );
       }
 
