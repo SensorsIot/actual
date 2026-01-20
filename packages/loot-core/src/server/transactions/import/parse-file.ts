@@ -106,9 +106,12 @@ export function detectSwissBankFormat(contents: string): SwissBankFormat {
   const firstLineLower = firstLine.toLowerCase();
 
   // Revolut: starts with "Art,Produkt," (German) or "Type,Product," (English)
+  // Handle both comma-separated and tab-separated formats
   if (
     firstLineLower.startsWith('art,produkt,') ||
-    firstLineLower.startsWith('type,product,')
+    firstLineLower.startsWith('type,product,') ||
+    firstLineLower.startsWith('art\tprodukt\t') ||
+    firstLineLower.startsWith('type\tproduct\t')
   ) {
     return 'revolut';
   }
@@ -458,12 +461,16 @@ async function parseRevolutCSV(
   const errors = Array<ParseError>();
   const contents = await fs.readFile(filepath);
 
+  // Auto-detect delimiter (tab or comma) from first line
+  const firstLine = contents.split(/\r?\n/)[0] || '';
+  const delimiter = firstLine.includes('\t') ? '\t' : ',';
+
   let data: Record<string, string>[];
   try {
     data = csv2json(contents, {
       columns: true,
       bom: true,
-      delimiter: ',',
+      delimiter,
       quote: '"',
       trim: true,
       relax_column_count: true,
