@@ -479,6 +479,10 @@ async function parseRevolutCSV(
 
   const transactions: StructuredTransaction[] = [];
 
+  // Track transactions to detect cross-currency duplicates
+  // Key: date + payee (normalized), Value: { currency, amount, index }
+  const seenTransactions = new Map<string, { currency: string; amount: number; index: number }>();
+
   for (const row of data) {
     // Skip pending/reverted transactions (like Python: only COMPLETED)
     const status = getRevolutField(row, 'State', 'Status');
@@ -527,6 +531,44 @@ async function parseRevolutCSV(
       .replace(/\s+/g, '_')
       .replace(/:/g, '')
       .slice(0, 50);
+
+    // Detect cross-currency duplicates
+    // Revolut exports may contain the same transaction in multiple currencies
+    // (original currency + CHF converted). We keep the original currency version.
+    const dupKey = `${dateStr}_${beschreibung?.toLowerCase().slice(0, 30)}`;
+    const existing = seenTransactions.get(dupKey);
+
+    if (existing) {
+      // Same transaction already seen with different currency
+      // Keep the non-CHF (original) version, skip the CHF converted version
+      if (currency === 'CHF' && existing.currency !== 'CHF') {
+        // This is the CHF converted version, skip it
+        continue;
+      } else if (currency !== 'CHF' && existing.currency === 'CHF') {
+        // Previous was CHF, this is original currency - remove the CHF version
+        const chfIndex = existing.index;
+        if (chfIndex >= 0 && chfIndex < transactions.length) {
+          transactions.splice(chfIndex, 1);
+          // Update indices in seenTransactions for entries after the removed one
+          for (const [key, val] of seenTransactions.entries()) {
+            if (val.index > chfIndex) {
+              val.index--;
+            }
+          }
+        }
+      } else if (currency === existing.currency) {
+        // Same currency, might be legitimate duplicate or same transaction
+        // Skip to avoid double-booking
+        continue;
+      }
+    }
+
+    // Track this transaction
+    seenTransactions.set(dupKey, {
+      currency: currency || 'CHF',
+      amount: amount ?? 0,
+      index: transactions.length
+    });
 
     // Build notes with transaction type info
     const notesParts: string[] = [];
