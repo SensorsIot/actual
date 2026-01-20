@@ -544,7 +544,49 @@ export async function reconcileTransactions(
 
       // Update the transaction
       // For payee: only keep existing if it's valid, otherwise use imported payee
-      const finalPayee = existingPayeeValid ? existing.payee : (trans.payee || null);
+      // But also verify trans.payee is valid (it might have been set by rules to a non-existent payee)
+      let transPayeeValid = false;
+      let transPayeeId = trans.payee;
+      if (trans.payee) {
+        // Check if it's in payeesToCreate (will be created) or already exists in DB
+        const inPayeesToCreate = [...payeesToCreate.values()].some(p => p.id === trans.payee);
+        if (inPayeesToCreate) {
+          transPayeeValid = true;
+        } else {
+          const transPayeeRecord = await db.getPayee(trans.payee);
+          transPayeeValid = !!(transPayeeRecord?.name);
+        }
+        logger.log('[Reconcile] trans.payee valid:', transPayeeValid, 'inPayeesToCreate:', inPayeesToCreate);
+      }
+
+      // If trans.payee is invalid but we have imported_payee name, try to find or create a valid payee
+      if (!transPayeeValid && trans.imported_payee) {
+        // First check payeesToCreate
+        const payeeInCreate = payeesToCreate.get(trans.imported_payee.toLowerCase());
+        if (payeeInCreate) {
+          transPayeeId = payeeInCreate.id;
+          transPayeeValid = true;
+          logger.log('[Reconcile] Found payee in payeesToCreate:', payeeInCreate.id, payeeInCreate.name);
+        } else {
+          // Then check the database
+          const payeeByName = await db.getPayeeByName(trans.imported_payee);
+          if (payeeByName?.id) {
+            transPayeeId = payeeByName.id;
+            transPayeeValid = true;
+            logger.log('[Reconcile] Found payee by name fallback:', payeeByName.id, payeeByName.name);
+          } else {
+            // Create new payee if not found
+            const newPayee = { id: uuidv4(), name: trans.imported_payee };
+            payeesToCreate.set(trans.imported_payee.toLowerCase(), newPayee);
+            transPayeeId = newPayee.id;
+            transPayeeValid = true;
+            logger.log('[Reconcile] Created new payee:', newPayee.id, newPayee.name);
+          }
+        }
+      }
+
+      // Use existing payee if valid, otherwise use trans.payee if valid, otherwise null
+      const finalPayee = existingPayeeValid ? existing.payee : (transPayeeValid ? transPayeeId : null);
       logger.log('[Reconcile] Final payee decision:', finalPayee);
       const updates = {
         imported_id: trans.imported_id || null,
