@@ -896,6 +896,18 @@ The import modal for Swiss bank CSV files (Migros and Revolut) uses fixed column
 
 **Modal dimensions**: 1050px width × 450px height
 
+### Transaction Status Column
+
+The status column shows one of three states:
+
+| Status | Color | Meaning |
+|--------|-------|---------|
+| **Skip** | Red | Already imported (duplicate), will be skipped |
+| **Update** | Orange | Matches existing transaction, will update/merge |
+| **New** | Teal | Truly new transaction, will be added |
+
+**Note:** "Update" status appears when a transaction matches an existing one (by date/amount) but has additional data to merge (e.g., payee name, notes).
+
 ### Category Dropdown Behavior
 
 The category dropdown behavior differs based on transaction status:
@@ -903,10 +915,10 @@ The category dropdown behavior differs based on transaction status:
 | Status | Dropdown | Behavior |
 |--------|----------|----------|
 | **New** | Interactive dropdown | User can select/change category |
-| **Duplicate** | Read-only text | Shows matched category, cannot edit |
-| **Existing** | Read-only text | Shows current category, cannot edit |
+| **Update** | Read-only text | Shows matched category from existing transaction |
+| **Skip** | Read-only text | Shows matched category, cannot edit |
 
-**Rationale:** Duplicate transactions are skipped during import, so editing their category would have no effect.
+**Rationale:** Skip (duplicate) transactions are not processed during import, so editing their category would have no effect.
 
 ### Per-Transaction Category Selection
 
@@ -1161,3 +1173,83 @@ Difference:           CHF     3.33
 
 → Book +3.33 CHF to Revolut CHF as "Revolut Differenz"
 ```
+
+---
+
+## Import Summary Modal
+
+### Overview
+
+After importing Swiss bank transactions (Migros or Revolut), a summary modal is displayed showing import results.
+
+### Modal Contents
+
+| Section | Description |
+|---------|-------------|
+| **Status Banner** | Green = success, Red = errors occurred |
+| **Accounts Used** | List of accounts that received transactions |
+| **Accounts Created** | New accounts created (Revolut multi-currency) |
+| **Transactions Added** | Count of new transactions |
+| **Transactions Updated** | Count of merged/updated transactions |
+| **Categories Applied** | Count of auto-categorized transactions |
+| **Errors** | List of any errors encountered |
+
+### Technical Implementation
+
+The import modal is closed **before** dispatching the import action to ensure the summary modal stays visible:
+
+```typescript
+// In ImportTransactionsModal.tsx
+} else if (isMigrosImport) {
+  // Close the import modal BEFORE dispatching
+  close();
+
+  // Dispatch import - thunk will push summary modal
+  didChange = await dispatch(importMigrosTransactions({...})).unwrap();
+
+  // Don't call close() again - summary modal is now visible
+  return;
+}
+```
+
+**Why this matters:** The import thunks (`importMigrosTransactions`, `importRevolutTransactions`) push the summary modal onto the modal stack. If `close()` is called after the dispatch, it would pop the summary modal (since `popModal()` removes the topmost modal), causing the summary to disappear immediately.
+
+---
+
+## Transaction Reconciliation
+
+### Payee Update Logic
+
+When reconciling imported transactions with existing ones, the system now validates the existing payee before using it:
+
+```typescript
+// Check if existing payee is valid (has a name)
+let existingPayeeValid = false;
+if (existing.payee) {
+  const existingPayeeRecord = await db.getPayee(existing.payee);
+  existingPayeeValid = !!(existingPayeeRecord?.name);
+}
+
+// Only keep existing payee if it's valid
+payee: existingPayeeValid ? existing.payee : (trans.payee || null),
+```
+
+**Problem solved:** Previously, if a transaction existed in the database with a payee UUID pointing to a deleted or empty payee record, the import would not update the payee with the new value from the CSV. The `existing.payee || trans.payee` logic would always prefer the (invalid) existing UUID because it was truthy.
+
+**Example:**
+- Existing transaction: date=14.01.2026, payee=null, amount=-40.00
+- Import transaction: date=14.01.2026, payee="BAZG Via-Webshop", amount=-40.00
+- Old behavior: Payee stays null (UUID might exist but point to empty name)
+- New behavior: Payee updated to "BAZG Via-Webshop"
+
+### Field Update Priority
+
+When merging transactions, fields are updated with this priority:
+
+| Field | Logic |
+|-------|-------|
+| `payee` | Use existing if valid (has name), otherwise use imported |
+| `category` | Prefer existing, fallback to imported |
+| `notes` | Prefer existing, fallback to imported |
+| `imported_payee` | Always use imported value |
+| `cleared` | Prefer existing, fallback to imported |
