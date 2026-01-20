@@ -880,18 +880,8 @@ export function ImportTransactionsModal({
       ).unwrap();
     } else if (isMigrosImport) {
       // Use Migros handler - routes to configured account from import_settings.json
-      // Close the import modal BEFORE dispatching so the summary modal becomes topmost
-      close();
-      didChange = await dispatch(
-        importMigrosTransactions({
-          transactions: finalTransactions,
-        }),
-      ).unwrap();
-      // Summary modal is now visible - handle post-import tasks and return (don't call close() again)
-      if (didChange) {
-        await dispatch(reloadPayees());
-      }
-      // Save new payee-category mappings for previously unmatched payees
+      // Collect payee-category mappings BEFORE closing (access state while component is still mounted)
+      const payeeMappingsToSave: Array<{ payee: string; category: string; isExpense: boolean }> = [];
       if (transactionCategories.size > 0) {
         const payeeMappings = new Map<string, { category: string; isExpense: boolean }>();
         for (const catInfo of transactionCategories.values()) {
@@ -905,14 +895,33 @@ export function ImportTransactionsModal({
           }
         }
         if (payeeMappings.size > 0) {
-          const newMappings = Array.from(payeeMappings.entries()).map(([payee, info]) => ({
+          payeeMappingsToSave.push(...Array.from(payeeMappings.entries()).map(([payee, info]) => ({
             payee,
             category: info.category,
             isExpense: info.isExpense,
-          }));
-          await send('swiss-bank-add-payee-mappings', { newMappings });
+          })));
         }
       }
+
+      // Close the import modal BEFORE dispatching so the summary modal becomes topmost
+      close();
+
+      // Now run async operations (don't access component state after close)
+      didChange = await dispatch(
+        importMigrosTransactions({
+          transactions: finalTransactions,
+        }),
+      ).unwrap();
+
+      if (didChange) {
+        await dispatch(reloadPayees());
+      }
+
+      // Save payee-category mappings (using pre-collected data)
+      if (payeeMappingsToSave.length > 0) {
+        await send('swiss-bank-add-payee-mappings', { newMappings: payeeMappingsToSave });
+      }
+
       if (onImported) {
         onImported(didChange);
       }
