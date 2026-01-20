@@ -450,6 +450,10 @@ export function ImportTransactionsModal({
       if (swissBankFormat) {
         const settings = await send('swiss-bank-get-import-settings');
         setImportSettings(settings);
+        // Initialize differenz category from settings if available
+        if (settings.revolut_differenz_category) {
+          setSelectedDifferenzCategory(settings.revolut_differenz_category);
+        }
         // Show settings dialog if required accounts not configured
         if (swissBankFormat === 'migros' && !settings.migros_account) {
           setShowSettingsDialog(true);
@@ -1290,7 +1294,7 @@ export function ImportTransactionsModal({
                 <>
                   <View style={{ marginBottom: 10 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Text style={{ width: 150 }}><Trans>Bank Account:</Trans></Text>
+                      <Text style={{ width: 150 }}><Trans>Topup Bank Account:</Trans></Text>
                       <Select
                         value={importSettings.revolut_bank_account}
                         onChange={(e: string) => setImportSettings({ ...importSettings, revolut_bank_account: e })}
