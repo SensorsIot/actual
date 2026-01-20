@@ -291,8 +291,8 @@ export function Transaction({
             style={{
               fontSize: '0.85em',
               padding: '2px 4px',
-              height: 'auto',
-              minWidth: 150,
+              height: '100%',
+              width: '100%',
             }}
           />
         ) : (
