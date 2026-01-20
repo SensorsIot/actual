@@ -67,8 +67,11 @@ export type AccountHandlers = {
   'simplefin-batch-sync': typeof simpleFinBatchSync;
   'transactions-import': typeof importTransactions;
   'transactions-import-revolut': typeof importRevolutTransactions;
+  'transactions-import-migros': typeof importMigrosTransactions;
   'account-unlink': typeof unlinkAccount;
   // Swiss bank import features (matching Python implementation)
+  'swiss-bank-get-import-settings': typeof getImportSettings;
+  'swiss-bank-save-import-settings': typeof saveImportSettings;
   'swiss-bank-get-payee-mapping': typeof getSwissBankPayeeMapping;
   'swiss-bank-save-payee-mapping': typeof saveSwissBankPayeeMapping;
   'swiss-bank-learn-categories': typeof learnCategoriesFromTransactions;
@@ -1581,7 +1584,7 @@ async function checkRevolutBalanceAndCorrect({
       payee: payee.id,
       category: categoryId,
       date: parseInt(today.replace(/-/g, ''), 10),
-      notes: `Saldokorrektur: Erwartet ${(expectedTotalCHF / 100).toFixed(2)} CHF, Berechnet ${(result.accountBalance / 100).toFixed(2)} CHF`,
+      notes: `Saldokorrektur: Ist ${(expectedTotalCHF / 100).toFixed(2)} CHF, Berechnet ${(result.accountBalance / 100).toFixed(2)} CHF`,
       cleared: true,
     });
 
@@ -1589,7 +1592,7 @@ async function checkRevolutBalanceAndCorrect({
     result.success = true;
 
     logger.info(
-      `Revolut Differenz: Booked ${(result.difference / 100).toFixed(2)} CHF to Revolut CHF (expected: ${(expectedTotalCHF / 100).toFixed(2)}, actual: ${(result.accountBalance / 100).toFixed(2)})`,
+      `Revolut Differenz: Booked ${(result.difference / 100).toFixed(2)} CHF to Revolut CHF (current: ${(expectedTotalCHF / 100).toFixed(2)}, calculated: ${(result.accountBalance / 100).toFixed(2)})`,
     );
 
     return result;
@@ -1734,7 +1737,7 @@ const DEFAULT_IMPORT_SETTINGS: ImportSettings = {
   migros_account: '',
   revolut_bank_account: '',
   cash_account: '',
-  revolut_differenz_category: 'Freizeit:Hobby',
+  revolut_differenz_category: '', // Ask user first time it's needed
 };
 
 /**

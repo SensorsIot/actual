@@ -67,12 +67,14 @@ type ImportSettings = {
   migros_account: string;
   revolut_bank_account: string;
   cash_account: string;
+  revolut_differenz_category: string;
 };
 
 const DEFAULT_IMPORT_SETTINGS: ImportSettings = {
   migros_account: '',
   revolut_bank_account: '',
   cash_account: '',
+  revolut_differenz_category: '',
 };
 
 // Transaction category selection for Swiss bank imports
@@ -231,6 +233,16 @@ export function ImportTransactionsModal({
   const [transactionCategories, setTransactionCategories] = useState<TransactionCategoryMap>(new Map());
   // Notes editing for Swiss bank imports (per transaction)
   const [transactionNotes, setTransactionNotes] = useState<Map<string, string | null>>(new Map());
+  // Current Revolut total for balance correction (in CHF, as string for input)
+  const [currentRevolutTotal, setCurrentRevolutTotal] = useState<string>('');
+  // Category prompt for Revolut balance correction
+  const [showCategoryPrompt, setShowCategoryPrompt] = useState(false);
+  const [pendingBalanceCorrection, setPendingBalanceCorrection] = useState<{
+    difference: number;
+    expectedBalance: number;
+    accountBalance: number;
+  } | null>(null);
+  const [selectedDifferenzCategory, setSelectedDifferenzCategory] = useState<string>('');
 
   // This cannot be set after parsing the file, because changing it
   // requires re-parsing the file. This is different from the other
@@ -433,7 +445,7 @@ export function ImportTransactionsModal({
 
       // Fetch import settings for Swiss bank imports
       if (swissBankFormat) {
-        const settings = await send('swiss-bank-get-import-settings', {});
+        const settings = await send('swiss-bank-get-import-settings');
         setImportSettings(settings);
         // Show settings dialog if required accounts not configured
         if (swissBankFormat === 'migros' && !settings.migros_account) {
@@ -916,11 +928,63 @@ export function ImportTransactionsModal({
       }
     }
 
+    // Revolut balance correction
+    if (isRevolutImport && currentRevolutTotal) {
+      // Parse the user-entered total (handle Swiss format with apostrophes)
+      const cleanedTotal = currentRevolutTotal.replace(/'/g, '').replace(',', '.');
+      const totalCHF = parseFloat(cleanedTotal);
+
+      if (!isNaN(totalCHF)) {
+        const totalCents = Math.round(totalCHF * 100);
+        const balanceResult = await send('revolut-balance-check', {
+          expectedTotalCHF: totalCents,
+        });
+
+        if (balanceResult.difference !== 0 && !balanceResult.correctionBooked) {
+          // Category not configured - need to ask user
+          // Store the pending correction and show the category prompt
+          setPendingBalanceCorrection({
+            difference: balanceResult.difference,
+            expectedBalance: balanceResult.expectedBalance,
+            accountBalance: balanceResult.accountBalance,
+          });
+          setShowCategoryPrompt(true);
+          // Don't close the modal yet - wait for user to select category
+          return;
+        }
+      }
+    }
+
     // Close the import modal first, then notify
     // This ensures the summary modal pushed by the import thunk stays visible
     close();
     if (onImported) {
       onImported(didChange);
+    }
+  }
+
+  // Handle category selection for balance correction
+  async function handleDifferenzCategoryConfirm() {
+    if (!selectedDifferenzCategory || !pendingBalanceCorrection) {
+      return;
+    }
+
+    // Save the category to settings
+    const newSettings = { ...importSettings, revolut_differenz_category: selectedDifferenzCategory };
+    await send('swiss-bank-save-import-settings', { settings: newSettings });
+    setImportSettings(newSettings);
+
+    // Now call the balance check again - it will book the correction with the new category
+    const balanceResult = await send('revolut-balance-check', {
+      expectedTotalCHF: pendingBalanceCorrection.expectedBalance,
+    });
+
+    // Close the prompt and modal
+    setShowCategoryPrompt(false);
+    setPendingBalanceCorrection(null);
+    close();
+    if (onImported) {
+      onImported(true);
     }
   }
 
@@ -1150,8 +1214,8 @@ export function ImportTransactionsModal({
                       value={importSettings.migros_account}
                       onChange={(e: string) => setImportSettings({ ...importSettings, migros_account: e })}
                       options={[
-                        ['', t('Select an account...')],
-                        ...accounts.filter(a => !a.closed).map(a => [a.name, a.name]),
+                        ['', t('Select an account...')] as [string, string],
+                        ...accounts.filter(a => !a.closed).map(a => [a.name, a.name] as [string, string]),
                       ]}
                       style={{ flex: 1 }}
                     />
@@ -1168,8 +1232,8 @@ export function ImportTransactionsModal({
                         value={importSettings.revolut_bank_account}
                         onChange={(e: string) => setImportSettings({ ...importSettings, revolut_bank_account: e })}
                         options={[
-                          ['', t('Select an account...')],
-                          ...accounts.filter(a => !a.closed).map(a => [a.name, a.name]),
+                          ['', t('Select an account...')] as [string, string],
+                          ...accounts.filter(a => !a.closed).map(a => [a.name, a.name] as [string, string]),
                         ]}
                         style={{ flex: 1 }}
                       />
@@ -1182,8 +1246,29 @@ export function ImportTransactionsModal({
                         value={importSettings.cash_account}
                         onChange={(e: string) => setImportSettings({ ...importSettings, cash_account: e })}
                         options={[
-                          ['', t('Select an account...')],
-                          ...accounts.filter(a => !a.closed).map(a => [a.name, a.name]),
+                          ['', t('Select an account...')] as [string, string],
+                          ...accounts.filter(a => !a.closed).map(a => [a.name, a.name] as [string, string]),
+                        ]}
+                        style={{ flex: 1 }}
+                      />
+                    </label>
+                  </View>
+                  <View style={{ marginBottom: 10 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <Text style={{ width: 150 }}><Trans>Differenz Category:</Trans></Text>
+                      <Select
+                        value={importSettings.revolut_differenz_category}
+                        onChange={(e: string) => setImportSettings({ ...importSettings, revolut_differenz_category: e })}
+                        options={[
+                          ['', t('Select a category...')] as [string, string],
+                          ...categories.grouped
+                            .flatMap(group =>
+                              (group.categories || []).map(cat => {
+                                const fullName = `${group.name}:${cat.name}`;
+                                return [fullName, fullName] as [string, string];
+                              })
+                            )
+                            .sort((a, b) => a[0].localeCompare(b[0])),
                         ]}
                         style={{ flex: 1 }}
                       />
@@ -1203,6 +1288,117 @@ export function ImportTransactionsModal({
                   <Trans>Save Settings</Trans>
                 </Button>
               </View>
+            </View>
+          )}
+
+          {/* Category Prompt for Revolut Balance Correction */}
+          {showCategoryPrompt && pendingBalanceCorrection && (
+            <View
+              style={{
+                marginTop: 10,
+                padding: 15,
+                backgroundColor: theme.warningBackground,
+                borderRadius: 4,
+                border: '1px solid ' + theme.warningBorder,
+              }}
+            >
+              <Text style={{ fontWeight: 'bold', marginBottom: 10, color: theme.warningText }}>
+                <Trans>Balance Correction Required</Trans>
+              </Text>
+              <Text style={{ marginBottom: 15 }}>
+                <Trans>
+                  The calculated Revolut balance differs from the entered total.
+                  Please select a category for the balance correction transaction.
+                </Trans>
+              </Text>
+              <View style={{ marginBottom: 10, padding: 10, backgroundColor: theme.tableBackground, borderRadius: 4 }}>
+                <Text style={{ fontSize: '0.9em' }}>
+                  <Trans>Current Balance:</Trans> {(pendingBalanceCorrection.accountBalance / 100).toFixed(2)} CHF
+                </Text>
+                <Text style={{ fontSize: '0.9em' }}>
+                  <Trans>Expected Total:</Trans> {(pendingBalanceCorrection.expectedBalance / 100).toFixed(2)} CHF
+                </Text>
+                <Text style={{ fontSize: '0.9em', fontWeight: 'bold', color: pendingBalanceCorrection.difference > 0 ? theme.noticeText : theme.errorText }}>
+                  <Trans>Difference:</Trans> {pendingBalanceCorrection.difference > 0 ? '+' : ''}{(pendingBalanceCorrection.difference / 100).toFixed(2)} CHF
+                </Text>
+              </View>
+              <View style={{ marginBottom: 10 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Text style={{ width: 150 }}><Trans>Category:</Trans></Text>
+                  <Select
+                    value={selectedDifferenzCategory}
+                    onChange={(e: string) => setSelectedDifferenzCategory(e)}
+                    options={[
+                      ['', t('Select a category...')] as [string, string],
+                      ...categories.grouped
+                        .flatMap(group =>
+                          (group.categories || []).map(cat => {
+                            const fullName = `${group.name}:${cat.name}`;
+                            return [fullName, fullName] as [string, string];
+                          })
+                        )
+                        .sort((a, b) => a[0].localeCompare(b[0])),
+                    ]}
+                    style={{ flex: 1 }}
+                  />
+                </label>
+              </View>
+              <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+                <Button
+                  onPress={() => {
+                    setShowCategoryPrompt(false);
+                    setPendingBalanceCorrection(null);
+                    close();
+                    if (onImported) {
+                      onImported(true);
+                    }
+                  }}
+                >
+                  <Trans>Skip Correction</Trans>
+                </Button>
+                <Button
+                  variant="primary"
+                  isDisabled={!selectedDifferenzCategory}
+                  onPress={handleDifferenzCategoryConfirm}
+                >
+                  <Trans>Book Correction</Trans>
+                </Button>
+              </View>
+            </View>
+          )}
+
+          {/* Current Revolut Total input for balance correction */}
+          {isRevolutImport && (
+            <View style={{ marginTop: 10, marginBottom: 10 }}>
+              <SpaceBetween style={{ alignItems: 'center' }}>
+                <label
+                  htmlFor="revolut-total-input"
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    gap: 5,
+                    alignItems: 'center',
+                    fontWeight: 500,
+                  }}
+                >
+                  <Trans>Current Revolut Total (CHF):</Trans>
+                  <Input
+                    id="revolut-total-input"
+                    type="text"
+                    value={currentRevolutTotal}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      // Allow numbers, dots, commas, and apostrophes for Swiss format
+                      const value = e.target.value.replace(/[^0-9.,'-]/g, '');
+                      setCurrentRevolutTotal(value);
+                    }}
+                    placeholder="z.B. 14'523.45"
+                    style={{ width: 150 }}
+                  />
+                </label>
+                <Text style={{ color: theme.pageTextSubdued, fontSize: '0.85em' }}>
+                  <Trans>Enter the current total from your Revolut app to correct exchange rate differences</Trans>
+                </Text>
+              </SpaceBetween>
             </View>
           )}
 
