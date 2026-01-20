@@ -778,10 +778,12 @@ export function ImportTransactionsModal({
       await dispatch(reloadPayees());
     }
 
+    // Close the import modal first, then notify
+    // This ensures the summary modal pushed by the import thunk stays visible
+    close();
     if (onImported) {
       onImported(didChange);
     }
-    close();
   }
 
   const runImportPreview = useCallback(async () => {

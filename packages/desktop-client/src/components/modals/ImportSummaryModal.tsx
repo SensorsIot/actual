@@ -135,7 +135,7 @@ export function ImportSummaryModal({
             >
               <InitialFocus>
                 <Button variant="primary" onPress={close}>
-                  <Trans>Close</Trans>
+                  <Trans>OK</Trans>
                 </Button>
               </InitialFocus>
             </View>
