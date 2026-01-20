@@ -231,12 +231,13 @@ export function Transaction({
       <Field
         width="flex"
         title={
-          transaction.category && categoryList.includes(transaction.category)
+          selectedCategory || (transaction.category && categoryList.includes(transaction.category)
             ? transaction.category
-            : undefined
+            : undefined)
         }
       >
-        {isSwissBankImport && !transaction.isMatchedTransaction ? (
+        {/* Show dropdown only for New transactions (not ignored/duplicate) */}
+        {isSwissBankImport && !transaction.isMatchedTransaction && !transaction.ignored ? (
           <Select
             value={selectedCategory || ''}
             onChange={(value: string) => {
@@ -255,13 +256,15 @@ export function Transaction({
               fontSize: '0.85em',
               padding: '2px 4px',
               height: 'auto',
-              minWidth: 120,
+              minWidth: 150,
             }}
           />
         ) : (
-          transaction.category &&
-          categoryList.includes(transaction.category) &&
-          transaction.category
+          // Show text for duplicates/existing or non-Swiss imports
+          selectedCategory ||
+          (transaction.category &&
+            categoryList.includes(transaction.category) &&
+            transaction.category)
         )}
       </Field>
       {showStatus && !transaction.isMatchedTransaction && (

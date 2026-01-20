@@ -1006,7 +1006,7 @@ export function ImportTransactionsModal({
     <Modal
       name="import-transactions"
       isLoading={loadingState === 'parsing'}
-      containerProps={{ style: { width: 800 } }}
+      containerProps={{ style: { width: '95vw', maxWidth: 1400 } }}
     >
       {({ state: { close } }) => (
         <>
