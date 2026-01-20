@@ -278,7 +278,7 @@ export function Transaction({
               onCategoryChange?.(transaction.trx_id, value || null);
             }}
             options={[
-              ['', ''],
+              ['', t('Select category...')],
               ...categoryGroups
                 .flatMap(group =>
                   (group.categories || []).map(cat => {
@@ -290,9 +290,12 @@ export function Transaction({
             ]}
             style={{
               fontSize: '0.85em',
-              padding: '2px 4px',
-              height: '100%',
+              padding: '4px 6px',
+              minHeight: 32,
               width: '100%',
+              backgroundColor: theme.tableBackground,
+              border: '1px solid ' + theme.tableBorder,
+              borderRadius: 4,
             }}
           />
         ) : (

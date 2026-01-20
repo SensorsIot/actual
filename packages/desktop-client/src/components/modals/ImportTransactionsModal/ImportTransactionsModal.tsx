@@ -60,6 +60,7 @@ import { useAccounts } from '@desktop-client/hooks/useAccounts';
 import { useCategories } from '@desktop-client/hooks/useCategories';
 import { useDateFormat } from '@desktop-client/hooks/useDateFormat';
 import { useSyncedPrefs } from '@desktop-client/hooks/useSyncedPrefs';
+import { pushModal } from '@desktop-client/modals/modalsSlice';
 import { reloadPayees } from '@desktop-client/payees/payeesSlice';
 import { useDispatch } from '@desktop-client/redux';
 
@@ -245,9 +246,8 @@ export function ImportTransactionsModal({
     accountBalance: number;
   } | null>(null);
   const [selectedDifferenzCategory, setSelectedDifferenzCategory] = useState<string>('');
-  // Learn categories prompt (shown when payee mapping is empty on first Swiss bank import)
-  const [showLearnCategoriesPrompt, setShowLearnCategoriesPrompt] = useState(false);
-  const [isLearningCategories, setIsLearningCategories] = useState(false);
+  // Flag to track if we're waiting for learn categories modal to complete
+  const [awaitingLearnCategories, setAwaitingLearnCategories] = useState(false);
 
   // This cannot be set after parsing the file, because changing it
   // requires re-parsing the file. This is different from the other
@@ -502,10 +502,29 @@ export function ImportTransactionsModal({
           (!existingMapping.income || Object.keys(existingMapping.income).length === 0);
 
         if (mappingIsEmpty) {
-          setShowLearnCategoriesPrompt(true);
-          // Don't continue with category matching yet - wait for user decision
+          // Store transactions first, then show the learn categories modal
           setTransactions(transactions);
+          setAwaitingLearnCategories(true);
           setLoadingState(null);
+
+          // Push the learn categories modal - it will call back when done
+          dispatch(pushModal({
+            modal: {
+              name: 'learn-categories',
+              options: {
+                onLearn: () => {
+                  // After learning, fetch category suggestions
+                  setAwaitingLearnCategories(false);
+                  fetchCategorySuggestionsForTransactions(transactions);
+                },
+                onSkip: () => {
+                  // User skipped, continue without categories
+                  setAwaitingLearnCategories(false);
+                  fetchCategorySuggestionsForTransactions(transactions);
+                },
+              },
+            },
+          }));
           return;
         }
       }
@@ -771,35 +790,16 @@ export function ImportTransactionsModal({
     });
   }
 
-  // Handle learning categories from existing transactions
-  async function handleLearnCategories(shouldLearn: boolean) {
-    setShowLearnCategoriesPrompt(false);
-
-    if (shouldLearn) {
-      setIsLearningCategories(true);
-      try {
-        const result = await send('swiss-bank-learn-categories', {});
-        if (result && result.mapping && result.count > 0) {
-          // Save the learned mapping to the file
-          await send('swiss-bank-save-payee-mapping', { mapping: result.mapping });
-          console.log(`Learned and saved ${result.count} payee-category mappings from existing transactions`);
-        }
-      } catch (err) {
-        console.error('Failed to learn categories:', err);
-      }
-      setIsLearningCategories(false);
-    }
-
-    // Now fetch and apply category suggestions to the waiting transactions
-    // Inline the logic here to avoid closure issues with state variables
-    if (transactions.length === 0) {
+  // Fetch and apply category suggestions to transactions (used after learn modal closes)
+  async function fetchCategorySuggestionsForTransactions(transactionsToProcess: ImportTransaction[]) {
+    if (transactionsToProcess.length === 0) {
       console.log('No transactions to apply categories to');
       return;
     }
 
     // Get unique payees with their amounts from current transactions
     const payeeAmounts = new Map<string, number>();
-    for (const trans of transactions) {
+    for (const trans of transactionsToProcess) {
       const payee = (trans as ImportTransaction & { payee_name?: string; imported_payee?: string }).payee_name ||
         (trans as ImportTransaction & { imported_payee?: string }).imported_payee ||
         trans.payee || '';
@@ -809,7 +809,7 @@ export function ImportTransactionsModal({
       }
     }
 
-    // Call API to get proposed categories using the freshly saved mapping
+    // Call API to get proposed categories using the mapping
     const payeeInputs = Array.from(payeeAmounts.entries()).map(([payee, amount]) => ({
       payee,
       amount,
@@ -832,7 +832,7 @@ export function ImportTransactionsModal({
 
     // Create per-transaction category map
     const categoryMap: TransactionCategoryMap = new Map();
-    for (const trans of transactions) {
+    for (const trans of transactionsToProcess) {
       const payee = (trans as ImportTransaction & { payee_name?: string; imported_payee?: string }).payee_name ||
         (trans as ImportTransaction & { imported_payee?: string }).imported_payee ||
         trans.payee || '';
@@ -1463,45 +1463,6 @@ export function ImportTransactionsModal({
                   variant="primary"
                 >
                   <Trans>Save Settings</Trans>
-                </Button>
-              </View>
-            </View>
-          )}
-
-          {/* Learn Categories Prompt (shown when payee mapping is empty) */}
-          {showLearnCategoriesPrompt && (
-            <View
-              style={{
-                marginTop: 10,
-                padding: 15,
-                backgroundColor: theme.tableRowBackgroundHover,
-                borderRadius: 4,
-                border: '1px solid ' + theme.tableBorder,
-              }}
-            >
-              <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>
-                <Trans>Learn Categories from Existing Transactions?</Trans>
-              </Text>
-              <Text style={{ marginBottom: 15, color: theme.pageTextSubdued }}>
-                <Trans>
-                  No category mappings found. Would you like to automatically learn
-                  payee-category associations from your existing categorized transactions?
-                  This will help auto-fill categories for future imports.
-                </Trans>
-              </Text>
-              <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
-                <Button
-                  onPress={() => handleLearnCategories(false)}
-                  isDisabled={isLearningCategories}
-                >
-                  <Trans>Skip</Trans>
-                </Button>
-                <Button
-                  variant="primary"
-                  onPress={() => handleLearnCategories(true)}
-                  isDisabled={isLearningCategories}
-                >
-                  {isLearningCategories ? <Trans>Learning...</Trans> : <Trans>Learn Categories</Trans>}
                 </Button>
               </View>
             </View>

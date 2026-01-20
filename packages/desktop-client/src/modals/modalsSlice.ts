@@ -577,6 +577,13 @@ export type Modal =
       name: 'payee-category-learning';
     }
   | {
+      name: 'learn-categories';
+      options: {
+        onLearn?: () => void;
+        onSkip?: () => void;
+      };
+    }
+  | {
       name: 'category-automations-edit';
       options: {
         categoryId: CategoryEntity['id'];

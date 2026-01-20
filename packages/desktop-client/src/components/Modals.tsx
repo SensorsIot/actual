@@ -42,6 +42,7 @@ import { GoCardlessInitialiseModal } from './modals/GoCardlessInitialiseModal';
 import { HoldBufferModal } from './modals/HoldBufferModal';
 import { ImportSummaryModal } from './modals/ImportSummaryModal';
 import { ImportTransactionsModal } from './modals/ImportTransactionsModal';
+import { LearnCategoriesModal } from './modals/LearnCategoriesModal';
 import { KeyboardShortcutModal } from './modals/KeyboardShortcutModal';
 import { LoadBackupModal } from './modals/LoadBackupModal';
 import { ConfirmChangeDocumentDirModal } from './modals/manager/ConfirmChangeDocumentDir';
@@ -217,6 +218,9 @@ export function Modals() {
 
         case 'payee-category-learning':
           return <CategoryLearning key={key} />;
+
+        case 'learn-categories':
+          return <LearnCategoriesModal key={key} {...modal.options} />;
 
         case 'new-category':
           return <NewCategoryModal key={key} {...modal.options} />;
