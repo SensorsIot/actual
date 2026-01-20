@@ -31,13 +31,15 @@ export function LearnCategoriesModal({
 
   async function handleLearn(close: () => void) {
     setIsLearning(true);
+    let count = 0;
     try {
       const result = await send('swiss-bank-learn-categories', {});
       if (result && result.mapping && result.count > 0) {
         // Save the learned mapping to the file
         await send('swiss-bank-save-payee-mapping', { mapping: result.mapping });
-        setLearnedCount(result.count);
-        console.log(`Learned and saved ${result.count} payee-category mappings`);
+        count = result.count;
+        setLearnedCount(count);
+        console.log(`Learned and saved ${count} payee-category mappings`);
       } else {
         setLearnedCount(0);
       }
@@ -47,11 +49,11 @@ export function LearnCategoriesModal({
     }
     setIsLearning(false);
 
-    // Brief delay to show the result, then close
+    // Brief delay to show the result, then close and call callback
     setTimeout(() => {
-      onLearn?.();
       close();
-    }, learnedCount && learnedCount > 0 ? 1000 : 100);
+      onLearn?.();
+    }, count > 0 ? 1000 : 100);
   }
 
   function handleSkip(close: () => void) {
