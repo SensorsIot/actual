@@ -1,6 +1,7 @@
 import React, { useMemo, type ComponentProps } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { Select } from '@actual-app/components/select';
 import { SvgDownAndRightArrow } from '@actual-app/components/icons/v2';
 import { SpaceBetween } from '@actual-app/components/space-between';
 import { styles } from '@actual-app/components/styles';
@@ -9,7 +10,7 @@ import { Tooltip } from '@actual-app/components/tooltip';
 import { View } from '@actual-app/components/view';
 
 import { amountToCurrency } from 'loot-core/shared/util';
-import { type CategoryEntity } from 'loot-core/types/models';
+import { type CategoryEntity, type CategoryGroupEntity } from 'loot-core/types/models';
 
 import { ParsedDate } from './ParsedDate';
 import {
@@ -35,9 +36,14 @@ type TransactionProps = {
   flipAmount: boolean;
   multiplierAmount: string;
   categories: CategoryEntity[];
+  categoryGroups?: CategoryGroupEntity[];
   onCheckTransaction: (transactionId: string) => void;
   reconcile: boolean;
   showStatus?: boolean; // Show duplicate/new status column
+  // Swiss bank import category selection
+  isSwissBankImport?: boolean;
+  selectedCategory?: string | null; // "Group:Category" format
+  onCategoryChange?: (transactionId: string, category: string | null) => void;
 };
 
 export function Transaction({
@@ -52,9 +58,13 @@ export function Transaction({
   flipAmount,
   multiplierAmount,
   categories,
+  categoryGroups = [],
   onCheckTransaction,
   reconcile,
   showStatus = false,
+  isSwissBankImport = false,
+  selectedCategory,
+  onCategoryChange,
 }: TransactionProps) {
   const { t } = useTranslation();
 
@@ -226,9 +236,33 @@ export function Transaction({
             : undefined
         }
       >
-        {transaction.category &&
+        {isSwissBankImport && !transaction.isMatchedTransaction ? (
+          <Select
+            value={selectedCategory || ''}
+            onChange={(value: string) => {
+              onCategoryChange?.(transaction.trx_id, value || null);
+            }}
+            options={[
+              ['', ''],
+              ...categoryGroups.flatMap(group =>
+                (group.categories || []).map(cat => {
+                  const fullName = `${group.name}:${cat.name}`;
+                  return [fullName, fullName] as [string, string];
+                })
+              ),
+            ]}
+            style={{
+              fontSize: '0.85em',
+              padding: '2px 4px',
+              height: 'auto',
+              minWidth: 120,
+            }}
+          />
+        ) : (
+          transaction.category &&
           categoryList.includes(transaction.category) &&
-          transaction.category}
+          transaction.category
+        )}
       </Field>
       {showStatus && !transaction.isMatchedTransaction && (
         <Field
