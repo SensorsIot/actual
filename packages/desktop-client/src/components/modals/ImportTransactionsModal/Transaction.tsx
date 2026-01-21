@@ -307,9 +307,10 @@ export function Transaction({
               padding: '4px 6px',
               minHeight: 32,
               width: '100%',
-              backgroundColor: theme.tableBackground,
-              border: '1px solid ' + theme.tableBorder,
+              backgroundColor: !selectedCategory ? theme.errorBackground : theme.tableBackground,
+              border: '1px solid ' + (!selectedCategory ? theme.errorBorder : theme.tableBorder),
               borderRadius: 4,
+              color: !selectedCategory ? theme.errorText : undefined,
             }}
           />
         ) : (
