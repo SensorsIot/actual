@@ -1888,11 +1888,18 @@ async function matchPayeesToCategories({
   payees: PayeeMatchInput[];
 }): Promise<PayeeMatchOutput[]> {
   const mapping = await getSwissBankPayeeMapping({});
+  const mappingKeys = Object.keys(mapping);
+  logger.info(`[matchPayees] Mapping has ${mappingKeys.length} entries: ${mappingKeys.slice(0, 5).join(', ')}${mappingKeys.length > 5 ? '...' : ''}`);
+
   const results: PayeeMatchOutput[] = [];
 
   for (const { payee, amount } of payees) {
     const isExpense = amount < 0;
     const matchResult = await getPayeeMatchResult(payee, mapping, isExpense);
+
+    if (matchResult.matchScore > 0) {
+      logger.info(`[matchPayees] "${payee}" -> score=${matchResult.matchScore.toFixed(2)}, matched="${matchResult.matchedPayee}", category="${matchResult.categoryString}"`);
+    }
 
     results.push({
       payee,
