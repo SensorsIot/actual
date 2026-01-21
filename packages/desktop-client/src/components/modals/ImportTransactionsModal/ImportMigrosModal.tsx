@@ -85,7 +85,7 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
         'transactions-parse-file',
         {
           filepath: filename,
-          options: { swissBankFormat: 'migros' },
+          options: { swissBankFormat: 'migros', importNotes: true },
         },
       );
 
