@@ -240,8 +240,8 @@ export function Transaction({
         {transaction.payee_name}
       </Field>
       <Field width={250} title={editedNotes ?? transaction.notes}>
-        {/* Show textarea for new transactions in Swiss bank imports (2 lines) */}
-        {isSwissBankImport && !transaction.isMatchedTransaction && !transaction.ignored ? (
+        {/* Show textarea for ALL Swiss bank import transactions (new and existing) */}
+        {isSwissBankImport && !transaction.isMatchedTransaction ? (
           <textarea
             value={editedNotes ?? transaction.notes ?? ''}
             onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -270,8 +270,8 @@ export function Transaction({
             : undefined)
         }
       >
-        {/* Show dropdown only for New transactions (not ignored/duplicate) */}
-        {isSwissBankImport && !transaction.isMatchedTransaction && !transaction.ignored ? (
+        {/* Show dropdown for ALL Swiss bank import transactions (new and existing) */}
+        {isSwissBankImport && !transaction.isMatchedTransaction ? (
           <Select
             value={selectedCategory || ''}
             onChange={(value: string) => {
@@ -299,7 +299,7 @@ export function Transaction({
             }}
           />
         ) : (
-          // Show text for duplicates/existing or non-Swiss imports
+          // Show text for non-Swiss imports only
           selectedCategory ||
           (transaction.category &&
             categoryList.includes(transaction.category) &&
