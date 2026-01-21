@@ -173,6 +173,151 @@ When importing a file via `Account.tsx`:
 - The user selects the topup bank account and cash account during first import.
 - The selections are saved in `import_settings.json` for future use.
 
+## Transfer Linking Mechanism
+
+### Overview
+
+When importing transactions that represent transfers between accounts (ATM withdrawals, top-ups, currency exchanges), the importer must create properly linked transfer transactions in the database.
+
+### Database structure for transfers
+
+A transfer in Actual Budget consists of **two transactions** (one in each account) with the following requirements:
+
+1. **Bidirectional linking via `transferred_id`**:
+   - Transaction A has `transferred_id` pointing to Transaction B
+   - Transaction B has `transferred_id` pointing to Transaction A
+
+2. **Transfer payees** (not regular payees):
+   - The `description` field must contain the UUID of a **transfer payee**
+   - A transfer payee has `transfer_acct` set to the target account ID
+   - Actual Budget automatically creates one transfer payee per account
+
+3. **Matching amounts**:
+   - Transaction A has negative amount (outflow)
+   - Transaction B has positive amount (inflow)
+   - Amounts should match (opposite signs)
+
+### Example: ATM withdrawal (Revolut → Kasse)
+
+```
+Revolut CHF Transaction:
+  id: "abc123..."
+  amount: -100000  (= -1000.00 CHF in cents)
+  description: "f0997c1e..."  ← UUID of Kasse transfer payee
+  transferred_id: "def456..."  ← points to Kasse transaction
+
+Kasse Transaction:
+  id: "def456..."
+  amount: 100000  (= +1000.00 CHF in cents)
+  description: "586a4b7b..."  ← UUID of Revolut transfer payee
+  transferred_id: "abc123..."  ← points to Revolut transaction
+```
+
+### Finding transfer payees
+
+Transfer payees are stored in the `payees` table with `transfer_acct` set:
+
+```sql
+-- Find transfer payee for Kasse account
+SELECT id, name FROM payees WHERE transfer_acct = '<kasse_account_id>';
+-- Returns: ('f0997c1e...', 'Kasse')
+
+-- Find transfer payee for Revolut CHF account
+SELECT id, name FROM payees WHERE transfer_acct = '<revolut_chf_account_id>';
+-- Returns: ('586a4b7b...', 'Revolut')
+```
+
+### Common mistake: Using string format instead of UUID
+
+**Wrong** (causes "uncategorized" display):
+```
+description: "transfer:54f94903-fcd0-4afc-8df8-25e4e3e7c5d8"  ← Invalid!
+```
+
+**Correct**:
+```
+description: "586a4b7b-5ebd-459b-9326-4eb40296d2b9"  ← UUID of transfer payee
+```
+
+### Parser classification for transfer detection
+
+The parser (`parse-file.ts`) classifies transactions and sets `transfer_account`:
+
+**Revolut** (`classifyRevolutTransaction`):
+| Transaction Type | Detection Pattern | `transferAccount` |
+|-----------------|-------------------|-------------------|
+| ATM withdrawal | `art === 'atm'` or description contains "cash withdrawal" | `'Kasse'` |
+| Currency exchange | `art === 'exchange'` | `'Revolut {TARGET_CURRENCY}'` |
+| Top-up | `art === 'topup'` | Bank account (from settings) |
+| SWIFT transfer | `art === 'transfer'` + "swift"/"sepa" in description | Bank account (from settings) |
+
+**Migros Bank** (`classifyMigrosTransaction`):
+| Transaction Type | Detection Pattern | `transferAccount` |
+|-----------------|-------------------|-------------------|
+| ATM withdrawal | Buchungstext contains "bankomat", "bargeldbezug", "geldautomat", or "bargeld" | `'Kasse'` |
+
+### Import flow for creating transfers
+
+The import handlers (`importRevolutTransactions`, `importMigrosTransactions` in `app.ts`) implement transfer linking:
+
+1. **Parser phase** (`parse-file.ts`):
+   - Classifies transaction type (atm, exchange, topup, etc.)
+   - Sets `transfer_account` field (e.g., `'Kasse'` for ATM)
+
+2. **Import phase** (`app.ts`):
+   - Skips category assignment for transfer-type transactions
+   - Tracks imported transactions with their metadata
+   - After main import, processes transactions with `transfer_account` set
+
+3. **Transfer creation** (for each transfer transaction):
+   ```
+   a. Find or create target account by name
+   b. Get targetTransferPayee (payee for target account)
+   c. Get sourceTransferPayee (payee for source account)
+   d. Create counter-transaction in target account:
+      - amount: opposite sign of source
+      - payee: sourceTransferPayee (points back to source)
+      - transfer_id: source transaction ID
+   e. Update source transaction:
+      - payee: targetTransferPayee (points to target)
+      - transfer_id: counter transaction ID
+   ```
+
+4. **Result tracking**:
+   - `transfersLinked` counter incremented for each linked pair
+   - Logged: `"Linked transfer: {source} -> {target} ({amount})"`
+
+### Category handling for transfers
+
+Transfer-type transactions are excluded from category auto-matching:
+- Transfer types: `['topup', 'swift_transfer', 'atm', 'exchange']`
+- These transactions get their payee set to a transfer payee instead
+- Transfers don't need categories in Actual Budget
+
+### Import result types
+
+**RevolutImportResult**:
+```typescript
+{
+  errors: Array<{ message: string }>;
+  accountsCreated: string[];
+  imported: Record<string, { added: string[]; updated: string[] }>;
+  transfersLinked: number;
+  categoriesApplied: number;
+}
+```
+
+**MigrosImportResult**:
+```typescript
+{
+  errors: Array<{ message: string }>;
+  accountUsed: string;
+  imported: { added: string[]; updated: string[] };
+  categoriesApplied: number;
+  transfersLinked: number;
+}
+```
+
 ## Appendix A - Data Models and Types
 
 - `SwissBankFormat`: `migros | revolut | auto | null`
@@ -194,3 +339,27 @@ When importing a file via `Account.tsx`:
 ## Appendix C - External Dependencies
 
 - Frankfurter API for exchange rates: `https://api.frankfurter.app/`
+
+## Appendix D - Implementation Files
+
+| Component | File Path |
+|-----------|-----------|
+| Parser & format detection | `packages/loot-core/src/server/transactions/import/parse-file.ts` |
+| Import handlers | `packages/loot-core/src/server/accounts/app.ts` |
+| Revolut modal | `packages/desktop-client/src/components/modals/ImportRevolutModal.tsx` |
+| Migros modal | `packages/desktop-client/src/components/modals/ImportMigrosModal.tsx` |
+| Shared hooks | `packages/desktop-client/src/components/modals/hooks/useSwissBankImport.ts` |
+| Transaction list | `packages/desktop-client/src/components/modals/components/TransactionList.tsx` |
+
+### Key functions
+
+**parse-file.ts**:
+- `classifyRevolutTransaction()` - Classifies Revolut transaction types and sets `transferAccount`
+- `classifyMigrosTransaction()` - Classifies Migros transaction types and sets `transferAccount`
+- `parseRevolutCSV()` - Parses Revolut CSV with multi-currency support
+- `parseMigrosCSV()` - Parses Migros Bank CSV
+
+**app.ts**:
+- `importRevolutTransactions()` - Imports Revolut transactions with transfer linking
+- `importMigrosTransactions()` - Imports Migros transactions with transfer linking
+- `findOrCreateAccount()` - Creates accounts if they don't exist (used for Kasse, etc.)

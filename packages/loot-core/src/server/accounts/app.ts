@@ -1431,10 +1431,16 @@ async function importRevolutTransactions({
           counterAmount = -txn.amount;
         }
 
-        // Get the transfer payee for target account
-        const transferPayee = await db.first<{ id: string }>(
+        // Get transfer payees for both directions:
+        // - targetTransferPayee: payee representing target account (used in source transaction)
+        // - sourceTransferPayee: payee representing source account (used in target transaction)
+        const targetTransferPayee = await db.first<{ id: string }>(
           'SELECT id FROM payees WHERE transfer_acct = ? AND tombstone = 0',
           [targetAccountId],
+        );
+        const sourceTransferPayee = await db.first<{ id: string }>(
+          'SELECT id FROM payees WHERE transfer_acct = ? AND tombstone = 0',
+          [accountId],
         );
 
         // Create counter-transaction in target account
@@ -1445,17 +1451,18 @@ async function importRevolutTransactions({
           id: counterId,
           account: targetAccountId,
           amount: counterAmount,
-          payee: transferPayee?.id || null,
+          payee: sourceTransferPayee?.id || null, // Points back to source account
           date: today,
           notes: `[Transfer] ${txn.imported_payee || txn.payee_name || ''}`,
-          cleared: false,
+          cleared: true,
           transfer_id: txnId,
         });
 
-        // Update original transaction with link to counter
+        // Update original transaction with link to counter AND correct transfer payee
         await db.updateTransaction({
           id: txnId,
           transfer_id: counterId,
+          payee: targetTransferPayee?.id || null, // Points to target account
         });
 
         result.transfersLinked++;
@@ -1623,11 +1630,17 @@ async function checkRevolutBalanceAndCorrect({
  * Import Migros CSV transactions to the configured account.
  * Uses migros_account from import_settings.json instead of selected account.
  */
+type MigrosImportTransaction = ImportTransactionEntity & {
+  transaction_type?: string;
+  transfer_account?: string;
+};
+
 type MigrosImportResult = {
   errors: Array<{ message: string }>;
   accountUsed: string;
   imported: { added: string[]; updated: string[] };
   categoriesApplied: number;
+  transfersLinked: number;
 };
 
 async function importMigrosTransactions({
@@ -1635,10 +1648,12 @@ async function importMigrosTransactions({
   isPreview = false,
   opts,
 }: {
-  transactions: ImportTransactionEntity[];
+  transactions: MigrosImportTransaction[];
   isPreview?: boolean;
   opts?: {
     defaultCleared?: boolean;
+    cashAccountName?: string; // Default: "Kasse"
+    createTransfers?: boolean; // Default: true
   };
 }): Promise<MigrosImportResult> {
   const result: MigrosImportResult = {
@@ -1646,12 +1661,15 @@ async function importMigrosTransactions({
     accountUsed: '',
     imported: { added: [], updated: [] },
     categoriesApplied: 0,
+    transfersLinked: 0,
   };
 
   try {
     // Load settings from import_settings.json
     const importSettings = await getImportSettings();
     const accountName = importSettings.migros_account;
+    const cashAccountName = opts?.cashAccountName || importSettings.cash_account || 'Kasse';
+    const createTransfers = opts?.createTransfers !== false;
 
     if (!accountName) {
       result.errors.push({ message: 'Migros account not configured. Please configure import settings.' });
@@ -1677,10 +1695,18 @@ async function importMigrosTransactions({
       logger.info(`Created Migros account: ${accountName}`);
     }
 
+    // Identify transfer transactions (skip category for these)
+    const transferTypes = ['atm'];
+
     // Load payee-category mapping and apply to transactions
     const payeeMapping = await getSwissBankPayeeMapping({});
     if (Object.keys(payeeMapping).length > 0) {
       for (const txn of transactions) {
+        // Skip category for transfer types - they will be linked transfers
+        const txnType = txn.transaction_type || '';
+        if (transferTypes.includes(txnType)) {
+          continue;
+        }
         if (!txn.category) {
           // Determine if expense based on amount (negative = expense)
           const isExpense = typeof txn.amount === 'number' ? txn.amount < 0 : true;
@@ -1698,10 +1724,20 @@ async function importMigrosTransactions({
       logger.info(`Applied payee-category mapping: ${result.categoriesApplied} categorized`);
     }
 
+    // Remove transfer-specific fields before import
+    const cleanTransactions: ImportTransactionEntity[] = transactions.map(txn => {
+      const {
+        transaction_type: _txnType,
+        transfer_account: _transferAcct,
+        ...clean
+      } = txn;
+      return clean;
+    });
+
     // Import transactions to this account
     const reconciled = await bankSync.reconcileTransactions(
       accountId,
-      transactions,
+      cleanTransactions,
       false,
       true,
       isPreview,
@@ -1713,8 +1749,92 @@ async function importMigrosTransactions({
       updated: reconciled.updated,
     };
 
+    // Track imported transactions for transfer linking
+    const importedWithMeta: Array<{
+      id: string;
+      txn: MigrosImportTransaction;
+    }> = [];
+
+    for (let i = 0; i < reconciled.added.length; i++) {
+      const txnId = reconciled.added[i];
+      const originalTxn = transactions[i];
+      if (originalTxn && txnId) {
+        importedWithMeta.push({
+          id: txnId,
+          txn: originalTxn,
+        });
+      }
+    }
+
+    // Create linked transfers for transfer-type transactions
+    if (!isPreview && createTransfers && importedWithMeta.length > 0) {
+      for (const imported of importedWithMeta) {
+        const { id: txnId, txn } = imported;
+        const txnType = txn.transaction_type || '';
+        const targetAccountName = txn.transfer_account;
+
+        // Only process ATM transactions with transfer_account set
+        if (txnType !== 'atm' || !targetAccountName) continue;
+
+        // Find or create target account (Kasse)
+        const targetAccount = await db.first<db.DbAccount>(
+          'SELECT id FROM accounts WHERE name = ? AND tombstone = 0',
+          [targetAccountName],
+        );
+
+        let targetAccountId: string;
+        if (targetAccount) {
+          targetAccountId = targetAccount.id;
+        } else {
+          // Create Kasse as off-budget account
+          targetAccountId = await findOrCreateAccount(targetAccountName, true);
+          logger.info(`Created transfer target account: ${targetAccountName}`);
+        }
+
+        // Get transfer payees for both directions:
+        // - targetTransferPayee: payee representing target account (used in source transaction)
+        // - sourceTransferPayee: payee representing source account (used in target transaction)
+        const targetTransferPayee = await db.first<{ id: string }>(
+          'SELECT id FROM payees WHERE transfer_acct = ? AND tombstone = 0',
+          [targetAccountId],
+        );
+        const sourceTransferPayee = await db.first<{ id: string }>(
+          'SELECT id FROM payees WHERE transfer_acct = ? AND tombstone = 0',
+          [accountId],
+        );
+
+        // Create counter-transaction in target account (Kasse)
+        const counterId = uuidv4();
+        const counterAmount = -txn.amount; // Opposite sign
+
+        await db.insertTransaction({
+          id: counterId,
+          account: targetAccountId,
+          amount: counterAmount,
+          payee: sourceTransferPayee?.id || null, // Points back to Migros account
+          date: txn.date,
+          notes: `[Transfer] ${txn.imported_payee || txn.payee_name || 'ATM'}`,
+          cleared: true,
+          transfer_id: txnId,
+        });
+
+        // Update original transaction with link to counter AND correct transfer payee
+        await db.updateTransaction({
+          id: txnId,
+          transfer_id: counterId,
+          payee: targetTransferPayee?.id || null, // Points to Kasse
+        });
+
+        result.transfersLinked++;
+
+        logger.info(
+          `Linked transfer: ${accountName} -> ${targetAccountName} (${counterAmount / 100} CHF)`,
+        );
+      }
+    }
+
     logger.info(
-      `Migros import to ${accountName}: ${reconciled.added.length} added, ${reconciled.updated.length} updated`,
+      `Migros import to ${accountName}: ${reconciled.added.length} added, ${reconciled.updated.length} updated, ${result.transfersLinked} transfers linked`,
     );
 
     return result;

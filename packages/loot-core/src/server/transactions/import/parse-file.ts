@@ -247,6 +247,30 @@ function extractPayeeFromBuchungstext(buchungstext: string): string {
 }
 
 /**
+ * Classify Migros Bank transaction type and detect transfer targets.
+ * Handles ATM withdrawals and other transfer patterns.
+ */
+function classifyMigrosTransaction(
+  buchungstext: string,
+): { type: string; transferAccount: string | null } {
+  const textLower = buchungstext.toLowerCase();
+
+  // ATM Withdrawal: Bank -> Cash (Kasse)
+  // Patterns: "Bankomatauszahlung", "Bargeldbezug", "Geldautomat", "Bezug am Bankomat"
+  if (
+    textLower.includes('bankomat') ||
+    textLower.includes('bargeldbezug') ||
+    textLower.includes('geldautomat') ||
+    textLower.includes('bargeld')
+  ) {
+    return { type: 'atm', transferAccount: 'Kasse' };
+  }
+
+  // Regular transaction
+  return { type: 'expense', transferAccount: null };
+}
+
+/**
  * Parse Swiss date format (DD.MM.YYYY) to YYYY-MM-DD
  */
 function parseSwissDate(dateStr: string): string {
@@ -417,6 +441,11 @@ async function parseMigrosCSV(
     // Extract TWINT ID for duplicate detection
     const twintId = extractTwintId(buchungstext || '');
 
+    // Classify transaction type and detect transfers
+    const { type: txnType, transferAccount } = classifyMigrosTransaction(
+      buchungstext || '',
+    );
+
     // Build notes
     const notesParts: string[] = [];
     if (mitteilung) notesParts.push(mitteilung);
@@ -429,6 +458,8 @@ async function parseMigrosCSV(
       payee_name: payee,
       imported_payee: payee,
       notes: options.importNotes ? notes : '',
+      transaction_type: txnType,
+      transfer_account: transferAccount,
       // Store TWINT ID as imported_id for duplicate detection
       ...(twintId && { imported_id: twintId }),
     } as StructuredTransaction);
@@ -472,7 +503,7 @@ function classifyRevolutTransaction(
 
   // ATM Withdrawal: Revolut -> Cash (Kasse)
   if (artLower === 'atm' || descLower.includes('cash withdrawal')) {
-    return { type: 'atm', transferAccount: null };
+    return { type: 'atm', transferAccount: 'Kasse' };
   }
 
   // Currency Exchange: Between Revolut currency accounts
