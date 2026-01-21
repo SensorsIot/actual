@@ -1111,9 +1111,6 @@ async function importTransactions({
   isPreview: boolean;
   opts?: {
     defaultCleared?: boolean;
-    // For Swiss bank imports, disable strict ID checking to allow fuzzy matching
-    // even when both transactions have different imported_id formats
-    strictIdChecking?: boolean;
   };
 }): Promise<ImportTransactionsResult> {
   if (typeof accountId !== 'string') {
@@ -1125,7 +1122,7 @@ async function importTransactions({
       accountId,
       transactions,
       false,
-      opts?.strictIdChecking ?? true,
+      true,
       isPreview,
       opts?.defaultCleared,
     );

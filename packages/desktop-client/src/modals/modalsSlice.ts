@@ -607,6 +607,20 @@ export type Modal =
         categoriesApplied: number;
         errors: string[];
       };
+    }
+  | {
+      name: 'import-revolut';
+      options: {
+        filename: string;
+        onImported?: (didChange: boolean) => void;
+      };
+    }
+  | {
+      name: 'import-migros';
+      options: {
+        filename: string;
+        onImported?: (didChange: boolean) => void;
+      };
     };
 
 type OpenAccountCloseModalPayload = {

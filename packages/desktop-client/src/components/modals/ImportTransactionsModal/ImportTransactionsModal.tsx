@@ -394,9 +394,6 @@ export function ImportTransactionsModal({
               importPreviewTransactions({
                 accountId: currencyAccount.id,
                 transactions: currencyTransactions,
-                // Disable strict ID checking for Swiss imports to allow fuzzy matching
-                // when imported_id formats differ (e.g., old vs new format)
-                opts: { strictIdChecking: false },
               }),
             ).unwrap();
 
@@ -411,20 +408,6 @@ export function ImportTransactionsModal({
               matchedUpdateMap[trans.trx_id] = { transaction: trans, existing: undefined, ignored: false };
             }
           }
-        }
-      } else if (isSwissBankImport) {
-        // Swiss bank (non-Revolut) single-account preview with relaxed ID checking
-        const previewTrx = await dispatch(
-          importPreviewTransactions({
-            accountId: previewAccountId,
-            transactions: previewTransactions,
-            opts: { strictIdChecking: false },
-          }),
-        ).unwrap();
-
-        for (const entry of previewTrx) {
-          // @ts-expect-error - entry.transaction might not have trx_id property
-          matchedUpdateMap[entry.transaction.trx_id] = entry;
         }
       } else {
         // Standard single-account preview
@@ -881,7 +864,9 @@ export function ImportTransactionsModal({
         continue;
       }
 
-      trans = fieldMappings ? applyFieldMappings(trans, fieldMappings) : trans;
+      // Swiss bank imports are already properly structured by the parser
+      // Don't apply field mappings as it would strip important fields (imported_id, currency, etc.)
+      trans = fieldMappings && !isSwissBankImport ? applyFieldMappings(trans, fieldMappings) : trans;
 
       // Swiss bank imports already have dates in YYYY-MM-DD format, skip re-parsing
       const date =

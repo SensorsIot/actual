@@ -42,6 +42,8 @@ import { GoCardlessInitialiseModal } from './modals/GoCardlessInitialiseModal';
 import { HoldBufferModal } from './modals/HoldBufferModal';
 import { ImportSummaryModal } from './modals/ImportSummaryModal';
 import { ImportTransactionsModal } from './modals/ImportTransactionsModal';
+import { ImportMigrosModal } from './modals/ImportTransactionsModal/ImportMigrosModal';
+import { ImportRevolutModal } from './modals/ImportTransactionsModal/ImportRevolutModal';
 import { LearnCategoriesModal } from './modals/LearnCategoriesModal';
 import { KeyboardShortcutModal } from './modals/KeyboardShortcutModal';
 import { LoadBackupModal } from './modals/LoadBackupModal';
@@ -124,6 +126,12 @@ export function Modals() {
 
         case 'import-transactions':
           return <ImportTransactionsModal key={key} {...modal.options} />;
+
+        case 'import-revolut':
+          return <ImportRevolutModal key={key} options={modal.options} />;
+
+        case 'import-migros':
+          return <ImportMigrosModal key={key} options={modal.options} />;
 
         case 'import-summary':
           return <ImportSummaryModal key={key} {...modal.options} />;

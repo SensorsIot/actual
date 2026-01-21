@@ -142,7 +142,14 @@ The importer currently supports Migros Bank and Revolut CSV exports. Each bank h
 
 - `SwissBankFormat`: `migros | revolut | auto | null`
 - `ParseFileOptions`: includes `swissBankFormat`
-- `StructuredTransaction`: includes optional `currency`, `transfer_account`, `transaction_type`
+- `StructuredTransaction`: includes optional `currency`, `transfer_account`, `transaction_type`, `imported_id`
+
+### Implementation note: Field mappings
+
+- Generic CSV imports (non-Swiss bank) show a field mapping UI that lets users specify which CSV column contains Date, Payee, Notes, Amount, etc.
+- Swiss bank imports (Migros and Revolut) hide this UI because their parsers auto-detect and structure the data.
+- When importing, field mappings **must not** be applied to Swiss bank imports, as this would strip critical fields like `imported_id`, `currency`, and `transaction_type`.
+- The UI hiding and import-time skipping are both necessary because saved field mappings from previous generic imports could otherwise be incorrectly applied.
 
 ## Appendix B - Config and Storage
 

@@ -594,20 +594,50 @@ class AccountInternal extends PureComponent<
         ],
       });
 
-      if (res) {
-        if (accountId && res?.length > 0) {
+      if (res && accountId && res?.length > 0) {
+        const filename = res[0];
+
+        // Detect Swiss bank format by doing a lightweight parse
+        const { metadata } = await send('transactions-parse-file', {
+          filepath: filename,
+          options: { swissBankFormat: 'auto' },
+        });
+
+        const onImported = (didChange: boolean) => {
+          if (didChange) {
+            this.fetchTransactions();
+          }
+        };
+
+        // Route to appropriate modal based on detected format
+        if (metadata?.bankFormat === 'revolut') {
+          this.props.dispatch(
+            pushModal({
+              modal: {
+                name: 'import-revolut',
+                options: { filename, onImported },
+              },
+            }),
+          );
+        } else if (metadata?.bankFormat === 'migros') {
+          this.props.dispatch(
+            pushModal({
+              modal: {
+                name: 'import-migros',
+                options: { filename, onImported },
+              },
+            }),
+          );
+        } else {
+          // Generic import for non-Swiss bank formats
           this.props.dispatch(
             pushModal({
               modal: {
                 name: 'import-transactions',
                 options: {
                   accountId,
-                  filename: res[0],
-                  onImported: (didChange: boolean) => {
-                    if (didChange) {
-                      this.fetchTransactions();
-                    }
-                  },
+                  filename,
+                  onImported,
                 },
               },
             }),
