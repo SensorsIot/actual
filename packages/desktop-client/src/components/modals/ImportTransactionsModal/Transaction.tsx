@@ -41,6 +41,7 @@ type TransactionProps = {
   onCheckTransaction: (transactionId: string) => void;
   reconcile: boolean;
   showStatus?: boolean; // Show duplicate/new status column
+  showCurrency?: boolean; // Show currency column (for Revolut imports)
   // Swiss bank import category selection
   isSwissBankImport?: boolean;
   selectedCategory?: string | null; // "Group:Category" format
@@ -66,6 +67,7 @@ export function Transaction({
   onCheckTransaction,
   reconcile,
   showStatus = false,
+  showCurrency = false,
   isSwissBankImport = false,
   selectedCategory,
   onCategoryChange,
@@ -239,6 +241,18 @@ export function Transaction({
       >
         {transaction.payee_name}
       </Field>
+      {showCurrency && (
+        <Field
+          width={60}
+          contentStyle={{
+            textAlign: 'center',
+            fontWeight: 500,
+            fontSize: '0.85em',
+          }}
+        >
+          {(transaction as { currency?: string }).currency || 'CHF'}
+        </Field>
+      )}
       <Field width={250} title={editedNotes ?? transaction.notes}>
         {/* Show textarea for ALL Swiss bank import transactions (new and existing) */}
         {isSwissBankImport && !transaction.isMatchedTransaction ? (

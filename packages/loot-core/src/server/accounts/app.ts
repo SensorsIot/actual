@@ -1111,6 +1111,9 @@ async function importTransactions({
   isPreview: boolean;
   opts?: {
     defaultCleared?: boolean;
+    // For Swiss bank imports, disable strict ID checking to allow fuzzy matching
+    // even when both transactions have different imported_id formats
+    strictIdChecking?: boolean;
   };
 }): Promise<ImportTransactionsResult> {
   if (typeof accountId !== 'string') {
@@ -1122,7 +1125,7 @@ async function importTransactions({
       accountId,
       transactions,
       false,
-      true,
+      opts?.strictIdChecking ?? true,
       isPreview,
       opts?.defaultCleared,
     );
@@ -1305,9 +1308,17 @@ async function importRevolutTransactions({
       }
 
       // Load payee-category mapping and apply to transactions
+      // Skip category assignment for transfer transaction types (topup, swift_transfer, atm, exchange)
+      // since transfers shouldn't have categories in Actual Budget
+      const transferTypes = ['topup', 'swift_transfer', 'atm', 'exchange'];
       const payeeMapping = await getSwissBankPayeeMapping({});
       if (Object.keys(payeeMapping).length > 0) {
         for (const txn of currencyTransactions) {
+          // Skip category for transfer types - they will be linked transfers
+          const txnType = txn.transaction_type || '';
+          if (transferTypes.includes(txnType)) {
+            continue;
+          }
           if (!txn.category) {
             // Determine if expense based on amount (negative = expense)
             const isExpense = typeof txn.amount === 'number' ? txn.amount < 0 : true;

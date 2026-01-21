@@ -394,6 +394,9 @@ export function ImportTransactionsModal({
               importPreviewTransactions({
                 accountId: currencyAccount.id,
                 transactions: currencyTransactions,
+                // Disable strict ID checking for Swiss imports to allow fuzzy matching
+                // when imported_id formats differ (e.g., old vs new format)
+                opts: { strictIdChecking: false },
               }),
             ).unwrap();
 
@@ -408,6 +411,20 @@ export function ImportTransactionsModal({
               matchedUpdateMap[trans.trx_id] = { transaction: trans, existing: undefined, ignored: false };
             }
           }
+        }
+      } else if (isSwissBankImport) {
+        // Swiss bank (non-Revolut) single-account preview with relaxed ID checking
+        const previewTrx = await dispatch(
+          importPreviewTransactions({
+            accountId: previewAccountId,
+            transactions: previewTransactions,
+            opts: { strictIdChecking: false },
+          }),
+        ).unwrap();
+
+        for (const entry of previewTrx) {
+          // @ts-expect-error - entry.transaction might not have trx_id property
+          matchedUpdateMap[entry.transaction.trx_id] = entry;
         }
       } else {
         // Standard single-account preview
@@ -838,6 +855,16 @@ export function ImportTransactionsModal({
   }
 
   async function onImport(close) {
+    // Validate: Require "Current Revolut Total" for Revolut imports
+    if (isRevolutImport && !currentRevolutTotal.trim()) {
+      setError({
+        parsed: true,
+        message: t('Please enter the "Current Revolut Total (CHF)" before importing.'),
+      });
+      setLoadingState(null);
+      return;
+    }
+
     setLoadingState('importing');
 
     const finalTransactions = [];
@@ -1222,9 +1249,17 @@ export function ImportTransactionsModal({
   const headers: ComponentProps<typeof TableHeader>['headers'] = [
     { name: t('Date'), width: 200 },
     { name: t('Payee'), width: 'flex' },
+  ];
+
+  // Add currency column for Revolut imports (after Payee, before Notes)
+  if (isRevolutImport) {
+    headers.push({ name: t('Curr'), width: 60 });
+  }
+
+  headers.push(
     { name: t('Notes'), width: 'flex' },
     { name: t('Category'), width: 'flex' },
-  ];
+  );
 
   if (reconcile) {
     headers.unshift({ name: ' ', width: 31 });
@@ -1337,6 +1372,7 @@ export function ImportTransactionsModal({
                       onCheckTransaction={onCheckTransaction}
                       reconcile={reconcile}
                       showStatus={isSwissBankImport}
+                      showCurrency={isRevolutImport}
                       isSwissBankImport={isSwissBankImport}
                       selectedCategory={transactionCategories.get(item.trx_id)?.selectedCategory}
                       onCategoryChange={onTransactionCategoryChange}

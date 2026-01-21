@@ -524,18 +524,22 @@ export const moveAccount = createAppAsyncThunk(
 type ImportPreviewTransactionsPayload = {
   accountId: string;
   transactions: TransactionEntity[];
+  opts?: {
+    strictIdChecking?: boolean;
+  };
 };
 
 export const importPreviewTransactions = createAppAsyncThunk(
   `${sliceName}/importPreviewTransactions`,
   async (
-    { accountId, transactions }: ImportPreviewTransactionsPayload,
+    { accountId, transactions, opts }: ImportPreviewTransactionsPayload,
     { dispatch },
   ) => {
     const { errors = [], updatedPreview } = await send('transactions-import', {
       accountId,
       transactions,
       isPreview: true,
+      opts,
     });
 
     errors.forEach(error => {
