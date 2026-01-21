@@ -174,7 +174,8 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
     }
 
     parseFile();
-  }, [filename, t, dispatch, fetchCategorySuggestions, accounts, targetAccountId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filename]);
 
   // Run import preview to detect duplicates
   const runImportPreview = useCallback(async (transactionsToPreview: ImportTransaction[], accountId: string) => {

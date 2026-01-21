@@ -170,7 +170,8 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
     }
 
     parseFile();
-  }, [filename, t, dispatch, fetchCategorySuggestions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filename]);
 
   // Run import preview to detect duplicates
   const runImportPreview = useCallback(async (transactionsToPreview: ImportTransaction[]) => {
