@@ -1449,13 +1449,13 @@ async function importRevolutTransactions({
           date: today,
           notes: `[Transfer] ${txn.imported_payee || txn.payee_name || ''}`,
           cleared: false,
-          transferred_id: txnId,
+          transfer_id: txnId,
         });
 
         // Update original transaction with link to counter
         await db.updateTransaction({
           id: txnId,
-          transferred_id: counterId,
+          transfer_id: counterId,
         });
 
         result.transfersLinked++;
