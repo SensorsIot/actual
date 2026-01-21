@@ -266,8 +266,11 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
 
   // Import transactions
   async function onImport(close: () => void) {
+    console.log('[Revolut Import] onImport started');
+
     // Validate: Require balance total
     if (!currentRevolutTotal.trim()) {
+      console.log('[Revolut Import] No balance total entered');
       setError({
         parsed: true,
         message: t('Please enter the "Current Revolut Total (CHF)" before importing.'),
@@ -276,6 +279,7 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
     }
 
     setLoadingState('importing');
+    console.log('[Revolut Import] Building final transactions...');
 
     // Build final transactions
     const finalTransactions = [];
@@ -331,49 +335,71 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
       });
     }
 
+    console.log(`[Revolut Import] Importing ${finalTransactions.length} transactions...`);
+
     // Import using Revolut handler
-    const didChange = await dispatch(
-      importRevolutTransactions({
-        transactions: finalTransactions,
-      }),
-    ).unwrap();
+    try {
+      const didChange = await dispatch(
+        importRevolutTransactions({
+          transactions: finalTransactions,
+        }),
+      ).unwrap();
+      console.log(`[Revolut Import] Import complete, didChange=${didChange}`);
 
-    if (didChange) {
-      await dispatch(reloadPayees());
-    }
+      if (didChange) {
+        console.log('[Revolut Import] Reloading payees...');
+        await dispatch(reloadPayees());
+      }
 
-    // Save payee mappings
-    await savePayeeMappings();
+      // Save payee mappings
+      console.log('[Revolut Import] Saving payee mappings...');
+      await savePayeeMappings();
 
-    // Balance correction
-    if (currentRevolutTotal) {
-      const cleanedTotal = currentRevolutTotal.replace(/'/g, '').replace(',', '.');
-      const totalCHF = parseFloat(cleanedTotal);
+      // Balance correction
+      console.log('[Revolut Import] Starting balance check...');
+      if (currentRevolutTotal) {
+        const cleanedTotal = currentRevolutTotal.replace(/'/g, '').replace(',', '.');
+        const totalCHF = parseFloat(cleanedTotal);
+        console.log(`[Revolut Import] Parsed total: ${totalCHF} CHF`);
 
-      if (!isNaN(totalCHF)) {
-        const totalCents = Math.round(totalCHF * 100);
-        const balanceResult = await send('revolut-balance-check', {
-          expectedTotalCHF: totalCents,
-        });
+        if (!isNaN(totalCHF)) {
+          const totalCents = Math.round(totalCHF * 100);
+          console.log(`[Revolut Import] Calling revolut-balance-check with ${totalCents} cents...`);
 
-        if (balanceResult.difference !== 0 && !balanceResult.correctionBooked) {
-          // Need to ask user for category
-          setPendingBalanceCorrection({
-            difference: balanceResult.difference,
-            expectedBalance: totalCents,
-            accountBalance: balanceResult.accountBalance,
+          const balanceResult = await send('revolut-balance-check', {
+            expectedTotalCHF: totalCents,
           });
-          setShowCategoryPrompt(true);
-          setLoadingState(null);
-          return;
+          console.log('[Revolut Import] Balance check result:', balanceResult);
+
+          if (balanceResult.difference !== 0 && !balanceResult.correctionBooked) {
+            console.log('[Revolut Import] Showing category prompt for balance correction');
+            // Need to ask user for category
+            setPendingBalanceCorrection({
+              difference: balanceResult.difference,
+              expectedBalance: totalCents,
+              accountBalance: balanceResult.accountBalance,
+            });
+            setShowCategoryPrompt(true);
+            setLoadingState(null);
+            return;
+          }
         }
       }
-    }
 
-    setLoadingState(null);
-    close();
-    if (onImported) {
-      onImported(didChange);
+      console.log('[Revolut Import] Closing modal...');
+      setLoadingState(null);
+      close();
+      if (onImported) {
+        onImported(didChange);
+      }
+      console.log('[Revolut Import] Done!');
+    } catch (err) {
+      console.error('[Revolut Import] Error:', err);
+      setError({
+        parsed: true,
+        message: err instanceof Error ? err.message : 'Import failed',
+      });
+      setLoadingState(null);
     }
   }
 
