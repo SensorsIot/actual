@@ -308,26 +308,36 @@ export function Transaction({
       </Field>
       {showStatus && !transaction.isMatchedTransaction && (
         <Field
-          width={70}
+          width={80}
           contentStyle={{
             textAlign: 'center',
             fontWeight: 500,
             fontSize: '0.85em',
-            color: transaction.ignored
-              ? theme.errorText
-              : transaction.existing
-                ? theme.warningText
-                : theme.noticeText,
+            // For Swiss imports: neu (teal) or vorhanden (orange)
+            // For non-Swiss: New (teal), Update (orange), Skip (red)
+            color: isSwissBankImport
+              ? (transaction.ignored || transaction.existing ? theme.warningText : theme.noticeText)
+              : (transaction.ignored
+                  ? theme.errorText
+                  : transaction.existing
+                    ? theme.warningText
+                    : theme.noticeText),
           }}
           title={
-            transaction.ignored
-              ? t('Already imported - will be skipped')
-              : transaction.existing
-                ? t('Will update existing transaction')
-                : t('New transaction')
+            isSwissBankImport
+              ? (transaction.ignored || transaction.existing
+                  ? t('Already in database')
+                  : t('New transaction'))
+              : (transaction.ignored
+                  ? t('Already imported - will be skipped')
+                  : transaction.existing
+                    ? t('Will update existing transaction')
+                    : t('New transaction'))
           }
         >
-          {transaction.ignored ? t('Skip') : transaction.existing ? t('Update') : t('New')}
+          {isSwissBankImport
+            ? (transaction.ignored || transaction.existing ? 'vorhanden' : 'neu')
+            : (transaction.ignored ? t('Skip') : transaction.existing ? t('Update') : t('New'))}
         </Field>
       )}
       {inOutMode && (

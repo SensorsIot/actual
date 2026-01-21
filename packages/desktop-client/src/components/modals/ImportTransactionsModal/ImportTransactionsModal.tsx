@@ -444,7 +444,9 @@ export function ImportTransactionsModal({
 
           next = next.concat({ ...current_trx });
 
-          if (existing_trx) {
+          // For Swiss bank imports, do NOT add a second row for matched transactions
+          // Instead, just show status "vorhanden" in the single row
+          if (existing_trx && !isSwissBankImport) {
             // add the updated existing transaction in the list, with the
             // isMatchedTransaction flag to identify it in display and not send it again
             existing_trx.isMatchedTransaction = true;
@@ -463,7 +465,7 @@ export function ImportTransactionsModal({
           return next;
         }, []);
     },
-    [previewAccountId, categories.list, clearOnImport, dispatch, isRevolutImport, accounts],
+    [previewAccountId, categories.list, clearOnImport, dispatch, isRevolutImport, isSwissBankImport, accounts],
   );
 
   const parse = useCallback(
@@ -927,12 +929,18 @@ export function ImportTransactionsModal({
         finalTransaction.forceAddTransaction = true;
       }
 
+      // For Swiss bank imports, use edited notes from transactionNotes state if available
+      const editedNotes = transactionNotes.get(trans.trx_id);
+      const finalNotes = importNotes
+        ? (editedNotes !== undefined ? editedNotes : finalTransaction.notes)
+        : null;
+
       finalTransactions.push({
         ...finalTransaction,
         date,
         amount: amountToInteger(amount),
         cleared: clearOnImport,
-        notes: importNotes ? finalTransaction.notes : null,
+        notes: finalNotes,
       });
     }
 
@@ -1161,6 +1169,19 @@ export function ImportTransactionsModal({
       outValue,
       multiplierAmount,
     );
+
+    // For Swiss bank imports, sort transactions: new (neu) first, existing (vorhanden) after
+    if (isSwissBankImport) {
+      transactionPreview.sort((a, b) => {
+        const aIsExisting = a.ignored || a.existing;
+        const bIsExisting = b.ignored || b.existing;
+        // New transactions (not existing) come first
+        if (aIsExisting && !bIsExisting) return 1;
+        if (!aIsExisting && bIsExisting) return -1;
+        return 0; // Keep original order within same group
+      });
+    }
+
     setTransactions(transactionPreview);
   }, [
     getImportPreview,
@@ -1173,6 +1194,7 @@ export function ImportTransactionsModal({
     inOutMode,
     outValue,
     multiplierAmount,
+    isSwissBankImport,
   ]);
 
   useEffect(() => {

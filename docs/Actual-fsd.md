@@ -489,13 +489,93 @@ Skips transactions with status:
 Only imports transactions with status `COMPLETED` or `ABGESCHLOSSEN`.
 
 ### Unique ID Generation
-For duplicate detection:
+For duplicate detection, uses currency + timestamp (timestamp is unique per transaction):
 ```typescript
-const uniqueId = `REV_${currency}_${startDateStr}_${betrag}`
+const uniqueId = `REV_${currencyCode}_${startDateStr}`
   .replace(/\s+/g, '_')
-  .replace(/:/g, '')
+  .replace(/:/g, '-')
   .slice(0, 50);
 ```
+
+**Example:** `REV_EUR_2026-01-15_10-30-45`
+
+**Note:** Amount is NOT included in the ID because all amounts are converted to CHF (see Exchange Rate API below), which would change the ID for existing transactions.
+
+---
+
+## Exchange Rate API (Frankfurter)
+
+### Overview
+
+All Revolut transactions are stored in CHF, regardless of the original currency. The system uses the Frankfurter API to convert foreign currency amounts to CHF at the historical exchange rate.
+
+### API Details
+
+| Property | Value |
+|----------|-------|
+| **Provider** | [Frankfurter API](https://www.frankfurter.app/) |
+| **Cost** | Free, no API key required |
+| **Base URL** | `https://api.frankfurter.app/` |
+| **Rate Limit** | None specified |
+
+### Implementation
+
+```typescript
+/**
+ * Cache for exchange rates to avoid repeated API calls.
+ * Key: "YYYY-MM-DD_EUR" -> rate to CHF
+ */
+const exchangeRateCache = new Map<string, number>();
+
+async function getExchangeRate(date: string, fromCurrency: string): Promise<number> {
+  const currency = fromCurrency.toUpperCase();
+  if (currency === 'CHF') return 1.0;
+
+  const cacheKey = `${date}_${currency}`;
+  if (exchangeRateCache.has(cacheKey)) {
+    return exchangeRateCache.get(cacheKey)!;
+  }
+
+  // Frankfurter API: https://www.frankfurter.app/docs/
+  const url = `https://api.frankfurter.app/${date}?from=${currency}&to=CHF`;
+  const response = await fetch(url);
+  const data = await response.json();
+  const rate = data.rates?.CHF || 1.0;
+
+  exchangeRateCache.set(cacheKey, rate);
+  return rate;
+}
+```
+
+### Conversion Logic
+
+```typescript
+// Parse amount in original currency
+const originalAmount = looselyParseAmount(betrag);
+
+// Convert to CHF
+const currencyCode = currency?.toUpperCase() || 'CHF';
+let amountCHF = originalAmount ?? 0;
+if (currencyCode !== 'CHF' && originalAmount !== null) {
+  const rate = await getExchangeRate(transactionDate, currencyCode);
+  amountCHF = Math.round((originalAmount * rate) * 100) / 100;
+}
+```
+
+### Notes Preservation
+
+Original amounts are preserved in transaction notes:
+```
+[Original: 100.00 EUR]
+```
+
+### Fallback Behavior
+
+| Scenario | Fallback |
+|----------|----------|
+| API returns error for date | Try `/latest` endpoint |
+| API completely unavailable | Use rate 1.0 (no conversion) |
+| Currency is CHF | Skip API call, return 1.0 |
 
 ---
 
@@ -503,10 +583,11 @@ const uniqueId = `REV_${currency}_${startDateStr}_${betrag}`
 
 ### Overview
 
-Revolut exports a single CSV containing transactions in multiple currencies. The importer automatically:
+Revolut exports a single CSV containing transactions in multiple currencies. The importer:
 1. Detects all currencies present in the CSV
-2. Creates accounts for each currency (if they don't exist)
-3. Routes transactions to the correct currency account
+2. **Converts all amounts to CHF** using the Exchange Rate API
+3. Creates accounts for each currency (if they don't exist)
+4. Routes transactions to the correct currency account
 
 ### Multi-Currency Account Handling
 
@@ -914,44 +995,67 @@ type RevolutImportResult = {
 
 ### Modal Layout
 
-The import modal for Swiss bank CSV files (Migros and Revolut) uses fixed column widths:
+The import modal for Swiss bank CSV files (Migros and Revolut) shows **exactly one row per CSV line** with fixed column widths:
 
 ```
-┌────────────────────────────────────────────────────────────────────────────────┐
-│ Import Transactions                                                      [X]   │
-├────────────────────────────────────────────────────────────────────────────────┤
-│ [✓] │ Date         │ Payee                   │ Notes      │ Category    │ Amt  │
-├─────┼──────────────┼─────────────────────────┼────────────┼─────────────┼──────┤
-│ [✓] │ 2026-01-15   │ Migros                  │ Shopping   │ [Dropdown ▼]│-25.50│
-│ [✓] │ 2026-01-14   │ Coop                    │            │ [Dropdown ▼]│-15.00│
-│ [-] │ 2026-01-13   │ Duplicate Transaction   │            │ Living:Food │ Dup  │
-│ [✓] │ 2026-01-12   │ New Payee               │ Unknown    │ [Dropdown ▼]│-10.00│
-└─────┴──────────────┴─────────────────────────┴────────────┴─────────────┴──────┘
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│ Import Transactions                                                            [X]   │
+├──────────────────────────────────────────────────────────────────────────────────────┤
+│ [✓] │ Date       │ Payee          │ Notes [editable]  │ Category [dropdown] │ Status │ Amt    │
+├─────┼────────────┼────────────────┼───────────────────┼─────────────────────┼────────┼────────┤
+│ [✓] │ 15.01.2026 │ Migros         │ [___Shopping___]  │ [Lebensmittel    ▼] │ neu    │ -25.50 │
+│ [✓] │ 14.01.2026 │ Coop           │ [______________]  │ [Lebensmittel    ▼] │ neu    │ -15.00 │
+│ [-] │ 13.01.2026 │ SBB            │ Ticket            │ Transport:ÖV        │vorhanden│ -40.00 │
+│ [✓] │ 12.01.2026 │ New Payee      │ [__Unknown____]   │ [Select...       ▼] │ neu    │ -10.00 │
+└─────┴────────────┴────────────────┴───────────────────┴─────────────────────┴────────┴────────┘
+                                    ↑                    ↑                      ↑
+                                    Editable textarea    Dropdown for new       German status
 ```
+
+**Key Principle:** One CSV line = One row in modal. No duplicate rows for matched transactions.
 
 | Column | Width | Description |
 |--------|-------|-------------|
 | Checkbox | 31px | Select/deselect transaction |
-| Date | 90px | Transaction date (formatted in Swiss locale) |
+| Date | 90px | Transaction date (Swiss format: DD.MM.YYYY) |
 | Payee | 250px | Payee name |
-| Notes | 250px | Transaction notes (editable for new transactions) |
-| Category | 200px | Category dropdown (for new transactions) |
-| Status | 70px | "New" or "Duplicate" indicator |
-| Amount | 90px | Transaction amount |
+| Notes | 250px | **Editable textarea** (2 lines) for new transactions |
+| Category | 200px | **Dropdown** with proposed/stored category for new transactions |
+| Status | 70px | "neu" or "vorhanden" (German) |
+| Amount | 90px | Transaction amount in CHF |
 
 **Modal dimensions**: 1050px width × 450px height
 
+### Transaction Sorting
+
+Transactions are sorted by status to prioritize review of new items:
+
+1. **New transactions first** (`neu`) - Sorted to top
+2. **Existing transactions after** (`vorhanden`) - Sorted to bottom
+
 ### Transaction Status Column
 
-The status column shows one of three states:
+The status column shows transaction state in German:
 
-| Status | Color | Meaning |
-|--------|-------|---------|
-| **Skip** | Red | Already imported (duplicate), will be skipped |
-| **Update** | Orange | Matches existing transaction, will update/merge |
-| **New** | Teal | Truly new transaction, will be added |
+| Status | German | Color | Meaning |
+|--------|--------|-------|---------|
+| **New** | `neu` | Teal | New transaction, will be imported |
+| **Existing** | `vorhanden` | Orange/Red | Already in database, will be skipped |
 
-**Note:** "Update" status appears when a transaction matches an existing one (by date/amount) but has additional data to merge (e.g., payee name, notes).
+**Note:** Unlike the previous design, there is NO separate "matched transaction" row shown. The status column indicates whether the transaction exists in the database.
+
+### Editable Fields
+
+For **new transactions** (`neu` status), users can edit:
+
+| Field | Control | Behavior |
+|-------|---------|----------|
+| **Notes** | 2-line textarea | Editable; changes saved to transaction on import |
+| **Category** | Dropdown | Shows proposed category (from mapping) or lets user select |
+
+For **existing transactions** (`vorhanden` status):
+- Notes: Read-only text display
+- Category: Read-only text display (shows existing category)
 
 ### Category Dropdown Behavior
 
@@ -959,20 +1063,44 @@ The category dropdown behavior differs based on transaction status:
 
 | Status | Dropdown | Behavior |
 |--------|----------|----------|
-| **New** | Interactive dropdown | User can select/change category |
-| **Update** | Read-only text | Shows matched category from existing transaction |
-| **Skip** | Read-only text | Shows matched category, cannot edit |
+| **neu** | Interactive dropdown | User can select/change category |
+| **vorhanden** | Read-only text | Shows existing category from database |
 
-**Rationale:** Skip (duplicate) transactions are not processed during import, so editing their category would have no effect.
+**Rationale:** Existing (`vorhanden`) transactions are already in the database, so editing would have no effect during import.
 
 ### Per-Transaction Category Selection
 
-For **new transactions** (not duplicates), users can:
+For **new transactions** (`neu` status), users can:
 1. Select a category from a dropdown showing all categories sorted alphabetically by `Group:Category`
 2. Edit the notes field using a 2-line textarea
 3. Categories are pre-filled using Jaccard similarity matching against known payee-category mappings
 
-**Duplicates** show read-only text (no dropdown or textarea).
+**Existing transactions** (`vorhanden`) show read-only text (no dropdown or textarea).
+
+### Data Persistence on Import
+
+When the user clicks **Import**, the following data is persisted:
+
+| Data | Target | Condition |
+|------|--------|-----------|
+| **Selected Category** | Transaction in database | Always saved with transaction |
+| **Edited Notes** | Transaction in database | Always saved with transaction |
+| **Category Mapping** | `payee_category_mapping.json` | Saved when: (1) new payee, or (2) category changed from proposed |
+
+**Implementation:**
+```typescript
+// Notes: Apply edited notes from UI state to final transaction
+const editedNotes = transactionNotes.get(trans.trx_id);
+finalTransactions.push({
+  ...finalTransaction,
+  notes: editedNotes !== undefined ? editedNotes : finalTransaction.notes,
+});
+
+// Category mapping: Save if new payee or category changed
+if (isNewPayee || categoryChanged) {
+  await send('swiss-bank-add-payee-mappings', { newMappings });
+}
+```
 
 ### Date Display
 
@@ -1147,7 +1275,20 @@ Foreign currency transactions in Revolut are exchanged to CHF at varying rates. 
 
 ### Solution
 
-The import modal includes a balance correction feature that allows users to enter their current Revolut balance and automatically book a correction transaction.
+The import modal includes a balance correction feature that:
+1. Sums the balances of **ALL Revolut accounts** (CHF + EUR + USD + ...)
+2. Compares with the user-entered total from the Revolut app
+3. Books the difference as a correction transaction to **Revolut CHF**
+
+### Balance Calculation
+
+```
+Calculated Total = Balance(Revolut CHF) + Balance(Revolut EUR) + Balance(Revolut USD) + ...
+Difference = User Entered Total - Calculated Total
+If Difference ≠ 0 → Book correction to Revolut CHF
+```
+
+**Important:** All Revolut accounts store amounts in CHF (converted via Exchange Rate API), so summing them gives the total CHF value.
 
 ### User Flow
 
@@ -1160,11 +1301,13 @@ The import modal includes a balance correction feature that allows users to ente
    - Enters notes where needed
    - Enters the current total value from their Revolut app (e.g., `14'523.45`)
 4. User clicks **Import**
-5. System compares calculated vs user-entered balance
+5. System:
+   - Sums balances of all accounts named "Revolut *"
+   - Compares with user-entered total
 6. If difference exists:
    - If `revolut_differenz_category` not configured → **Category prompt dialog** appears
    - User selects a category (saved to settings for future use)
-   - Correction transaction is booked to Revolut CHF account
+   - Correction transaction is booked to **Revolut CHF** account
 
 ### Category Prompt Dialog
 

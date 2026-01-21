@@ -1495,21 +1495,30 @@ async function checkRevolutBalanceAndCorrect({
   };
 
   try {
-    // Find Revolut CHF account
-    const revolutCHF = await db.first<db.DbAccount>(
-      'SELECT id FROM accounts WHERE name = ? AND tombstone = 0',
-      ['Revolut CHF'],
+    // Find ALL Revolut accounts (Revolut CHF, Revolut EUR, Revolut USD, etc.)
+    const revolutAccounts = await db.all<db.DbAccount>(
+      "SELECT id, name FROM accounts WHERE name LIKE 'Revolut %' AND tombstone = 0",
     );
 
-    if (!revolutCHF) {
-      result.error = 'Revolut CHF account not found';
+    if (revolutAccounts.length === 0) {
+      result.error = 'No Revolut accounts found';
       return result;
     }
 
-    // Calculate current balance
+    // Find Revolut CHF account specifically (needed for booking correction)
+    const revolutCHF = revolutAccounts.find(a => a.name === 'Revolut CHF');
+    if (!revolutCHF) {
+      result.error = 'Revolut CHF account not found (required for booking correction)';
+      return result;
+    }
+
+    // Calculate total balance across ALL Revolut accounts
+    // Note: All amounts are stored in CHF (converted via Exchange Rate API during import)
+    const accountIds = revolutAccounts.map(a => a.id);
+    const placeholders = accountIds.map(() => '?').join(',');
     const balanceResult = await db.first<{ total: number }>(
-      'SELECT SUM(amount) as total FROM transactions WHERE acct = ? AND tombstone = 0',
-      [revolutCHF.id],
+      `SELECT SUM(amount) as total FROM transactions WHERE acct IN (${placeholders}) AND tombstone = 0`,
+      accountIds,
     );
 
     result.accountBalance = balanceResult?.total || 0;
