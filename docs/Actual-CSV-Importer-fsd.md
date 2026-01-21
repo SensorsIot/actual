@@ -6,7 +6,42 @@ This document specifies the Swiss bank CSV importer behavior for Actual Budget.
 
 The importer currently supports Migros Bank and Revolut CSV exports. Each bank has its own chapter so additional banks can be added as new chapters in the future.
 
-## Detection and First-Import Prompts (Shared)
+## Architecture
+
+### Modal structure
+
+Each Swiss bank format has its own dedicated modal component:
+
+- `ImportRevolutModal.tsx` - Revolut-specific import flow
+- `ImportMigrosModal.tsx` - Migros Bank-specific import flow
+- `ImportTransactionsModal.tsx` - Generic CSV/OFX/QIF imports (unchanged)
+
+### Shared libraries
+
+Shared functionality is extracted into reusable modules:
+
+- **`hooks/useSwissBankImport.ts`** - State management for:
+  - Per-transaction category selection (`transactionCategories` map)
+  - Per-transaction notes editing (`transactionNotes` map)
+  - Category suggestion fetching from payee mappings
+  - Payee mapping collection and persistence
+
+- **`components/TransactionList.tsx`** - Shared transaction table component:
+  - Renders the transaction preview table with headers
+  - Handles transaction row rendering via the `Transaction` component
+  - Supports status column, currency column, and Swiss bank styling
+
+### Format detection and routing
+
+When importing a file via `Account.tsx`:
+
+1. The file is parsed with `swissBankFormat: 'auto'` to detect the format
+2. Based on `metadata.bankFormat`:
+   - `'revolut'` → Opens `import-revolut` modal
+   - `'migros'` → Opens `import-migros` modal
+   - Other → Opens `import-transactions` modal (generic)
+
+## Common Behavior (Shared)
 
 ### Format detection
 
@@ -18,7 +53,7 @@ The importer currently supports Migros Bank and Revolut CSV exports. Each bank h
 - On first import, the user is prompted to select accounts required by the import flow.
 - The selected accounts are stored in `import_settings.json` and reused for subsequent imports.
 
-### Import modal behavior (shared)
+### Import modal behavior
 
 - One CSV line maps to one preview row (no extra matched rows).
 - Fixed column layout: checkbox 31px, date 90px, payee 250px, notes 250px, category 200px, status 80px, amount 90px.
@@ -27,17 +62,17 @@ The importer currently supports Migros Bank and Revolut CSV exports. Each bank h
 - Rows are sorted with new items first, then existing items.
 - Dates display only the formatted Swiss date for these imports.
 
-### Category auto-matching and learning (shared)
+### Category auto-matching and learning
 
 - Payees are matched using Jaccard similarity with a threshold of 0.80.
 - Payee normalization removes accents, lowercases, and trims whitespace before matching.
 - For new payees or when the user changes the suggested category, mappings are stored in `payee_category_mapping.json`.
 - Matching considers transaction direction (expense vs income).
 
-### Import summary modal (shared)
+### Import summary modal
 
 - Shows accounts used, accounts created, transactions added/updated, categories applied, and any errors.
-- The import modal closes before dispatching the import action so the summary modal remains visible.
+- The Migros import modal closes before dispatching the import action so the summary modal remains visible.
 
 ## Import Migros Bank
 
@@ -146,10 +181,10 @@ The importer currently supports Migros Bank and Revolut CSV exports. Each bank h
 
 ### Implementation note: Field mappings
 
-- Generic CSV imports (non-Swiss bank) show a field mapping UI that lets users specify which CSV column contains Date, Payee, Notes, Amount, etc.
-- Swiss bank imports (Migros and Revolut) hide this UI because their parsers auto-detect and structure the data.
-- When importing, field mappings **must not** be applied to Swiss bank imports, as this would strip critical fields like `imported_id`, `currency`, and `transaction_type`.
-- The UI hiding and import-time skipping are both necessary because saved field mappings from previous generic imports could otherwise be incorrectly applied.
+- Generic CSV imports use `ImportTransactionsModal` which shows a field mapping UI for column selection.
+- Swiss bank imports use dedicated modals (`ImportRevolutModal`, `ImportMigrosModal`) that bypass field mappings entirely.
+- This separation ensures `imported_id`, `currency`, and `transaction_type` fields are never stripped.
+- The routing decision happens in `Account.tsx` based on format auto-detection before any modal opens.
 
 ## Appendix B - Config and Storage
 
