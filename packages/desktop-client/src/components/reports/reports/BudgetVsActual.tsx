@@ -234,7 +234,6 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
         earliestTransaction={earliestTransaction}
         latestTransaction={latestTransaction}
         firstDayOfWeekIdx={firstDayOfWeekIdx}
-        mode={mode}
         onChangeDates={onChangeDates}
         onApply={onApplyFilter}
         filters={conditions}
