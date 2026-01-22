@@ -72,25 +72,26 @@ Report types:
 
 ### Table layout
 
-Two-row header structure:
-- First row: Category | Month names (centered over Bud/Act pairs) | Total (centered over summary columns)
-- Second row: (empty) | Bud | Act (per month) | Bud | Act | Var | %
+Single-row header:
+- Category | Jan | Feb | Mar | ... | Budget | Actual | Var | %
 
 Columns:
 - **Category**: Category name (grouped under category groups)
 - **Monthly columns** (up to 12 months based on date range):
-  - Per month: Budgeted and Actual amounts
-  - Month name appears above the Bud/Act pair
-- **Total section**:
-  - Total Budgeted (sum across all months)
-  - Total Actual (sum across all months)
-  - Variance (budgeted - actual)
-  - % (percentage variance, hidden in compact mode)
+  - Shows actual spending only (not budgeted)
+  - Vertical separator lines between months for readability
+  - Clickable to drill down into transactions
+- **Summary columns**:
+  - Budget: Total budgeted amount across the date range
+  - Actual: Total actual spending (clickable to drill down)
+  - Var: Variance (budgeted - actual)
+  - %: Percentage variance (hidden in compact mode)
 
 Table features:
 - Collapsible category groups (click to expand/collapse)
 - Group subtotal rows and grand total row
 - Group rows use bold styling
+- **Transactions drilldown**: Click any actual amount to open a modal showing the underlying transactions
 
 ### Widget behavior
 
@@ -276,6 +277,12 @@ Column widths:
 - `BudgetVsActualGroupData`: id, name, monthlyData (Record<month, MonthlyBudgetActual>), budgeted, actual, variance, categories
 - `BudgetVsActualData`: groups, months (string[]), totalMonthlyData (Record<month, MonthlyBudgetActual>), totalBudgeted, totalActual, totalVariance, startDate, endDate
 - `BudgetVsActualWidget`: name, conditions, conditionsOp, timeFrame, showHiddenCategories
+
+### Transactions Drilldown Modal
+- Modal name: `transactions-drilldown`
+- Options: categoryId, categoryName, month (optional), startDate, endDate
+- Displays: Date, Payee, Notes, Amount columns with total row
+- Query: Transactions filtered by category and date range
 
 ### Current Asset Value
 - `CurrentAssetValueAccountData`: id, name, balance

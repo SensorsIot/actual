@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 
+import { styles } from '@actual-app/components/styles';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
@@ -14,6 +15,8 @@ import {
 import { Row, Cell } from '@desktop-client/components/table';
 import { useFormat } from '@desktop-client/hooks/useFormat';
 import { useLocale } from '@desktop-client/hooks/useLocale';
+import { pushModal } from '@desktop-client/modals/modalsSlice';
+import { useDispatch } from '@desktop-client/redux';
 
 type BudgetVsActualTableProps = {
   data: BudgetVsActualData;
@@ -27,9 +30,45 @@ export function BudgetVsActualTable({
   const { t } = useTranslation();
   const format = useFormat();
   const locale = useLocale();
+  const dispatch = useDispatch();
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     new Set(data.groups.map(g => g.id)),
   );
+
+  const handleActualClick = (
+    categoryId: string,
+    categoryName: string,
+    month?: string,
+  ) => {
+    // Calculate date range for the month or full period
+    let startDate: string;
+    let endDate: string;
+
+    if (month) {
+      // Single month: first to last day of month
+      startDate = `${month}-01`;
+      endDate = monthUtils.getMonthEnd(month).slice(0, 10);
+    } else {
+      // Full period from data
+      startDate = data.startDate;
+      endDate = data.endDate;
+    }
+
+    dispatch(
+      pushModal({
+        modal: {
+          name: 'transactions-drilldown',
+          options: {
+            categoryId,
+            categoryName,
+            month,
+            startDate,
+            endDate,
+          },
+        },
+      }),
+    );
+  };
 
   const toggleGroup = (groupId: string) => {
     setExpandedGroups(prev => {
@@ -73,48 +112,60 @@ export function BudgetVsActualTable({
 
   const renderMonthlyHeaders = () => {
     return data.months.map((month, idx) => (
-      <View
+      <Cell
         key={month}
+        width={monthAmountWidth}
+        plain
         style={{
-          flexDirection: 'column',
+          textAlign: 'center',
           borderRight: `1px solid ${theme.tableBorder}`,
         }}
       >
-        <Cell width={monthAmountWidth * 2} plain style={{ textAlign: 'center' }}>
-          {monthNames[idx]}
-        </Cell>
-        <View style={{ flexDirection: 'row' }}>
-          <Cell width={monthAmountWidth} plain style={{ textAlign: 'right' }}>
-            {t('Bud')}
-          </Cell>
-          <Cell width={monthAmountWidth} plain style={{ textAlign: 'right' }}>
-            {t('Act')}
-          </Cell>
-        </View>
-      </View>
+        {monthNames[idx]}
+      </Cell>
     ));
   };
 
   const renderMonthlyCells = (
     monthlyData: Record<string, MonthlyBudgetActual>,
+    categoryId?: string,
+    categoryName?: string,
   ) => {
     return data.months.map(month => {
       const monthData = monthlyData[month] || { budgeted: 0, actual: 0 };
+      const isClickable = categoryId && categoryName;
       return (
-        <View
+        <Cell
           key={month}
+          width={monthAmountWidth}
+          plain
           style={{
-            flexDirection: 'row',
+            textAlign: 'right',
             borderRight: `1px solid ${theme.tableBorder}`,
+            ...(isClickable && {
+              cursor: 'pointer',
+            }),
           }}
+          onClick={
+            isClickable
+              ? (e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  handleActualClick(categoryId, categoryName, month);
+                }
+              : undefined
+          }
         >
-          <Cell width={monthAmountWidth} plain style={{ textAlign: 'right' }}>
-            <PrivacyFilter>{format(monthData.budgeted, 'financial')}</PrivacyFilter>
-          </Cell>
-          <Cell width={monthAmountWidth} plain style={{ textAlign: 'right' }}>
+          <View
+            style={{
+              ...(isClickable && {
+                ...styles.underlinedText,
+                color: theme.pageTextLink,
+              }),
+            }}
+          >
             <PrivacyFilter>{format(monthData.actual, 'financial')}</PrivacyFilter>
-          </Cell>
-        </View>
+          </View>
+        </Cell>
       );
     });
   };
@@ -122,42 +173,32 @@ export function BudgetVsActualTable({
   return (
     <View style={{ flex: 1 }}>
       {/* Header */}
-      <View
+      <Row
         style={{
-          flexDirection: 'row',
           fontWeight: 600,
           backgroundColor: theme.tableHeaderBackground,
           color: theme.tableHeaderText,
         }}
       >
-        <View style={{ flexDirection: 'column', justifyContent: 'flex-end' }}>
-          <Cell width={categoryWidth} plain style={{ height: 'auto' }}>
-            <Trans>Category</Trans>
-          </Cell>
-        </View>
+        <Cell width={categoryWidth} plain>
+          <Trans>Category</Trans>
+        </Cell>
         {renderMonthlyHeaders()}
-        <View style={{ flexDirection: 'column' }}>
-          <Cell width={totalAmountWidth * 2 + varianceWidth + (compact ? 0 : percentWidth)} plain style={{ textAlign: 'center' }}>
-            <Trans>Total</Trans>
+        <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
+          {t('Budget')}
+        </Cell>
+        <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
+          {t('Actual')}
+        </Cell>
+        <Cell width={varianceWidth} plain style={{ textAlign: 'right' }}>
+          {t('Var')}
+        </Cell>
+        {!compact && (
+          <Cell width={percentWidth} plain style={{ textAlign: 'right' }}>
+            %
           </Cell>
-          <View style={{ flexDirection: 'row' }}>
-            <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
-              {t('Bud')}
-            </Cell>
-            <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
-              {t('Act')}
-            </Cell>
-            <Cell width={varianceWidth} plain style={{ textAlign: 'right' }}>
-              {t('Var')}
-            </Cell>
-            {!compact && (
-              <Cell width={percentWidth} plain style={{ textAlign: 'right' }}>
-                %
-              </Cell>
-            )}
-          </View>
-        </View>
-      </View>
+        )}
+      </Row>
 
       {/* Groups and Categories */}
       <View style={{ flex: 1, overflowY: 'auto' }}>
@@ -229,16 +270,34 @@ export function BudgetVsActualTable({
                   <Cell width={categoryWidth} plain>
                     <View style={{ paddingLeft: 20 }}>{category.name}</View>
                   </Cell>
-                  {renderMonthlyCells(category.monthlyData)}
+                  {renderMonthlyCells(category.monthlyData, category.id, category.name)}
                   <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
                     <PrivacyFilter>
                       {format(category.budgeted, 'financial')}
                     </PrivacyFilter>
                   </Cell>
-                  <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
-                    <PrivacyFilter>
-                      {format(category.actual, 'financial')}
-                    </PrivacyFilter>
+                  <Cell
+                    width={totalAmountWidth}
+                    plain
+                    style={{
+                      textAlign: 'right',
+                      cursor: 'pointer',
+                    }}
+                    onClick={(e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      handleActualClick(category.id, category.name);
+                    }}
+                  >
+                    <View
+                      style={{
+                        ...styles.underlinedText,
+                        color: theme.pageTextLink,
+                      }}
+                    >
+                      <PrivacyFilter>
+                        {format(category.actual, 'financial')}
+                      </PrivacyFilter>
+                    </View>
                   </Cell>
                   <Cell
                     width={varianceWidth}

@@ -621,6 +621,16 @@ export type Modal =
         filename: string;
         onImported?: (didChange: boolean) => void;
       };
+    }
+  | {
+      name: 'transactions-drilldown';
+      options: {
+        categoryId: CategoryEntity['id'];
+        categoryName: string;
+        month?: string; // Optional: specific month (YYYY-MM format)
+        startDate: string; // YYYY-MM-DD format
+        endDate: string; // YYYY-MM-DD format
+      };
     };
 
 type OpenAccountCloseModalPayload = {

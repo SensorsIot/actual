@@ -73,6 +73,7 @@ import { TrackingBalanceMenuModal } from './modals/TrackingBalanceMenuModal';
 import { TrackingBudgetMenuModal } from './modals/TrackingBudgetMenuModal';
 import { TrackingBudgetMonthMenuModal } from './modals/TrackingBudgetMonthMenuModal';
 import { TrackingBudgetSummaryModal } from './modals/TrackingBudgetSummaryModal';
+import { TransactionsDrilldownModal } from './modals/TransactionsDrilldownModal';
 import { TransferModal } from './modals/TransferModal';
 import { TransferOwnership } from './modals/TransferOwnership';
 import { UnmigrateBudgetAutomationsModal } from './modals/UnmigrateBudgetAutomationsModal';
@@ -420,6 +421,9 @@ export function Modals() {
 
         case 'enable-password-auth':
           return <PasswordEnableModal key={key} {...modal.options} />;
+
+        case 'transactions-drilldown':
+          return <TransactionsDrilldownModal key={key} {...modal.options} />;
 
         default:
           throw new Error('Unknown modal');
