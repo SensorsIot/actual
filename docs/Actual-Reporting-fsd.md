@@ -283,8 +283,13 @@ Column widths:
 ### Transactions Drilldown Modal
 - Modal name: `transactions-drilldown`
 - Options: categoryId, categoryName, month (optional), startDate, endDate
-- Displays: Date, Payee, Notes, Amount columns with total row
+- Displays: Date, Payee, Category, Notes, Amount columns with total row
 - Query: Transactions filtered by category and date range
+- **Category editing**: Click category column to change transaction's category
+  - Opens `category-autocomplete` modal for selection
+  - Transaction removed from list after change (no longer in this category)
+  - Total updates automatically
+  - Uses `transaction-update` API to persist change
 
 ### Current Asset Value
 - `CurrentAssetValueAccountData`: id, name, balance
