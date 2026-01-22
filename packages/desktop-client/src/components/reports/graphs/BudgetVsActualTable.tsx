@@ -73,7 +73,13 @@ export function BudgetVsActualTable({
 
   const renderMonthlyHeaders = () => {
     return data.months.map((month, idx) => (
-      <View key={month} style={{ flexDirection: 'column' }}>
+      <View
+        key={month}
+        style={{
+          flexDirection: 'column',
+          borderRight: `1px solid ${theme.tableBorder}`,
+        }}
+      >
         <Cell width={monthAmountWidth * 2} plain style={{ textAlign: 'center' }}>
           {monthNames[idx]}
         </Cell>
@@ -95,7 +101,13 @@ export function BudgetVsActualTable({
     return data.months.map(month => {
       const monthData = monthlyData[month] || { budgeted: 0, actual: 0 };
       return (
-        <View key={month} style={{ flexDirection: 'row' }}>
+        <View
+          key={month}
+          style={{
+            flexDirection: 'row',
+            borderRight: `1px solid ${theme.tableBorder}`,
+          }}
+        >
           <Cell width={monthAmountWidth} plain style={{ textAlign: 'right' }}>
             <PrivacyFilter>{format(monthData.budgeted, 'financial')}</PrivacyFilter>
           </Cell>
