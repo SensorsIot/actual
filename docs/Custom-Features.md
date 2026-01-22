@@ -36,6 +36,44 @@ All values displayed as positive for easy reading:
 
 **Totals:** Income - Expenses = Net (surplus/deficit)
 
+### Example with Calculation
+
+This example shows how raw database values are transformed for display:
+
+```
+              RAW (Database)         REPORT (Display)
+           Budget    Actual       Budget    Actual    Variance
+Income    -100000   +90000       100000     90000     -10000
+Expense    +20000   -21000        20000     21000      +1000
+                                 -------    ------    -------
+Total                             80000     69000     -11000
+```
+
+**Explanation:**
+
+1. **Storage (RAW column):**
+   - Income budget: -100000 (negative)
+   - Income actual: +90000 (positive transaction)
+   - Expense budget: +20000 (positive)
+   - Expense actual: -21000 (negative transaction)
+
+2. **Display transformation (REPORT columns):**
+   - Income budget: -100000 → 100000 (negated)
+   - Income actual: +90000 → 90000 (kept as-is)
+   - Expense budget: +20000 → 20000 (kept as-is)
+   - Expense actual: -21000 → 21000 (negated)
+
+3. **Variance calculation:**
+   - Income: 90000 - 100000 = -10000 (earned $10k less than expected)
+   - Expense: 21000 - 20000 = +1000 (spent $1k more than budget)
+
+4. **Totals:**
+   - Budget: 100000 - 20000 = 80000 (expected net)
+   - Actual: 90000 - 21000 = 69000 (actual net)
+   - Variance: 69000 - 80000 = -11000 (net shortfall)
+
+The negative total variance indicates an unfavorable position: earned less income and spent more than planned.
+
 ### Transactions Drilldown
 Click on any **Actual** amount to see the underlying transactions:
 - Shows Date, Payee, Category (with group name), Notes, and Amount
