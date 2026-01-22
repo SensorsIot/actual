@@ -29,6 +29,7 @@ type TransactionsDrilldownModalProps = {
   month?: string;
   startDate: string;
   endDate: string;
+  onTransactionChange?: () => void;
 };
 
 // Helper component to display category name
@@ -49,6 +50,7 @@ export function TransactionsDrilldownModal({
   month,
   startDate,
   endDate,
+  onTransactionChange,
 }: TransactionsDrilldownModalProps) {
   const { t } = useTranslation();
   const format = useFormat();
@@ -101,6 +103,7 @@ export function TransactionsDrilldownModal({
           name: 'category-autocomplete',
           options: {
             title: t('Change Category'),
+            closeOnSelect: true,
             onSelect: async (newCategoryId: string) => {
               // Update the transaction's category
               await send('transaction-update', {
@@ -112,6 +115,9 @@ export function TransactionsDrilldownModal({
               setTransactions(prev =>
                 prev.filter(t => t.id !== transaction.id),
               );
+
+              // Notify parent that a transaction was changed
+              onTransactionChange?.();
             },
             onClose: () => {},
           },

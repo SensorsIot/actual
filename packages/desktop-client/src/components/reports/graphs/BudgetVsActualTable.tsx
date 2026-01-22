@@ -20,11 +20,13 @@ import { useDispatch } from '@desktop-client/redux';
 type BudgetVsActualTableProps = {
   data: BudgetVsActualData;
   compact?: boolean;
+  onTransactionChange?: () => void;
 };
 
 export function BudgetVsActualTable({
   data,
   compact = false,
+  onTransactionChange,
 }: BudgetVsActualTableProps) {
   const { t } = useTranslation();
   const format = useFormat();
@@ -63,6 +65,7 @@ export function BudgetVsActualTable({
             month,
             startDate,
             endDate,
+            onTransactionChange,
           },
         },
       }),

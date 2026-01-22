@@ -630,6 +630,7 @@ export type Modal =
         month?: string; // Optional: specific month (YYYY-MM format)
         startDate: string; // YYYY-MM-DD format
         endDate: string; // YYYY-MM-DD format
+        onTransactionChange?: () => void; // Callback when a transaction is modified
       };
     };
 

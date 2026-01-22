@@ -99,6 +99,12 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
   );
   const [latestTransaction, setLatestTransaction] = useState('');
   const [earliestTransaction, setEarliestTransaction] = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const handleTransactionChange = () => {
+    // Increment refresh key to trigger data reload
+    setRefreshKey(prev => prev + 1);
+  };
 
   const [_firstDayOfWeekIdx] = useSyncedPref('firstDayOfWeekIdx');
   const firstDayOfWeekIdx = _firstDayOfWeekIdx || '0';
@@ -174,7 +180,8 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
         conditionsOp,
         showHiddenCategories,
       }),
-    [start, end, categories, conditions, conditionsOp, showHiddenCategories],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [start, end, categories, conditions, conditionsOp, showHiddenCategories, refreshKey],
   );
 
   const data = useReport<BudgetVsActualData>('budget-vs-actual', getGraphData);
@@ -343,7 +350,7 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
           />
         </View>
 
-        <BudgetVsActualTable data={data} />
+        <BudgetVsActualTable data={data} onTransactionChange={handleTransactionChange} />
       </View>
     </Page>
   );
