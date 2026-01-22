@@ -6,6 +6,7 @@ import { styles } from '@actual-app/components/styles';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
+import { send } from 'loot-core/platform/client/fetch';
 import { q } from 'loot-core/shared/query';
 import * as monthUtils from 'loot-core/shared/months';
 import { type TransactionEntity } from 'loot-core/types/models';
@@ -14,10 +15,13 @@ import { Modal, ModalCloseButton, ModalHeader } from '@desktop-client/components
 import { PrivacyFilter } from '@desktop-client/components/PrivacyFilter';
 import { Row, Cell, Field, Table } from '@desktop-client/components/table';
 import { DisplayId } from '@desktop-client/components/util/DisplayId';
+import { useCategory } from '@desktop-client/hooks/useCategory';
 import { useDateFormat } from '@desktop-client/hooks/useDateFormat';
 import { useFormat } from '@desktop-client/hooks/useFormat';
 import { useModalState } from '@desktop-client/hooks/useModalState';
+import { pushModal } from '@desktop-client/modals/modalsSlice';
 import { aqlQuery } from '@desktop-client/queries/aqlQuery';
+import { useDispatch } from '@desktop-client/redux';
 
 type TransactionsDrilldownModalProps = {
   categoryId: string;
@@ -26,6 +30,18 @@ type TransactionsDrilldownModalProps = {
   startDate: string;
   endDate: string;
 };
+
+// Helper component to display category name
+function CategoryDisplay({ id }: { id: string | null }) {
+  const { t } = useTranslation();
+  const category = useCategory(id || '');
+
+  if (!id || !category) {
+    return <span style={{ color: theme.pageTextSubdued }}>{t('Uncategorized')}</span>;
+  }
+
+  return <span>{category.name}</span>;
+}
 
 export function TransactionsDrilldownModal({
   categoryId,
@@ -37,6 +53,7 @@ export function TransactionsDrilldownModal({
   const { t } = useTranslation();
   const format = useFormat();
   const dateFormat = useDateFormat() || 'MM/dd/yyyy';
+  const dispatch = useDispatch();
   const { onClose } = useModalState();
   const [transactions, setTransactions] = useState<TransactionEntity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -58,7 +75,7 @@ export function TransactionsDrilldownModal({
               { date: { $lte: endDate } },
             ],
           })
-          .select(['id', 'date', 'payee', 'notes', 'amount', 'account'])
+          .select(['id', 'date', 'payee', 'notes', 'amount', 'account', 'category'])
           .options({ splits: 'inline' });
 
         const { data } = await aqlQuery(query);
@@ -76,6 +93,31 @@ export function TransactionsDrilldownModal({
 
     loadTransactions();
   }, [categoryId, startDate, endDate]);
+
+  const handleCategoryChange = (transaction: TransactionEntity) => {
+    dispatch(
+      pushModal({
+        modal: {
+          name: 'category-autocomplete',
+          options: {
+            onSelect: async (newCategoryId: string) => {
+              // Update the transaction's category
+              await send('transaction-update', {
+                ...transaction,
+                category: newCategoryId,
+              });
+
+              // Remove the transaction from the list since it's no longer in this category
+              setTransactions(prev =>
+                prev.filter(t => t.id !== transaction.id),
+              );
+            },
+            onClose: () => {},
+          },
+        },
+      }),
+    );
+  };
 
   // Calculate total
   const total = transactions.reduce((sum, t) => sum + t.amount, 0);
@@ -114,23 +156,26 @@ export function TransactionsDrilldownModal({
               items={transactions}
               headers={
                 <>
-                  <Field width={100}>
+                  <Field width={90}>
                     <Trans>Date</Trans>
                   </Field>
                   <Field width="flex">
                     <Trans>Payee</Trans>
                   </Field>
                   <Field width="flex">
+                    <Trans>Category</Trans>
+                  </Field>
+                  <Field width="flex">
                     <Trans>Notes</Trans>
                   </Field>
-                  <Field width={100} style={{ textAlign: 'right' }}>
+                  <Field width={90} style={{ textAlign: 'right' }}>
                     <Trans>Amount</Trans>
                   </Field>
                 </>
               }
               renderItem={({ item: transaction }) => (
                 <Row key={transaction.id} style={{ color: theme.tableText }}>
-                  <Field width={100}>
+                  <Field width={90}>
                     {monthUtils.format(transaction.date, dateFormat)}
                   </Field>
                   <Cell width="flex" exposed style={{ alignItems: 'flex-start' }}>
@@ -142,11 +187,32 @@ export function TransactionsDrilldownModal({
                       )
                     }
                   </Cell>
+                  <Cell
+                    width="flex"
+                    exposed
+                    style={{
+                      alignItems: 'flex-start',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => handleCategoryChange(transaction)}
+                  >
+                    {() => (
+                      <View
+                        style={{
+                          padding: '2px 6px',
+                          borderRadius: 4,
+                          backgroundColor: theme.tableRowBackgroundHover,
+                        }}
+                      >
+                        <CategoryDisplay id={transaction.category} />
+                      </View>
+                    )}
+                  </Cell>
                   <Field width="flex" title={transaction.notes || ''}>
                     {transaction.notes || ''}
                   </Field>
                   <Field
-                    width={100}
+                    width={90}
                     style={{ textAlign: 'right', ...styles.tnum }}
                   >
                     <PrivacyFilter>
@@ -173,7 +239,7 @@ export function TransactionsDrilldownModal({
             <View style={{ flex: 1 }}>
               <Trans>Total ({transactions.length} transactions)</Trans>
             </View>
-            <View style={{ width: 100, textAlign: 'right', ...styles.tnum }}>
+            <View style={{ width: 90, textAlign: 'right', ...styles.tnum }}>
               <PrivacyFilter>{format(total, 'financial')}</PrivacyFilter>
             </View>
           </View>
