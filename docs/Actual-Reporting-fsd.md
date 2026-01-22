@@ -239,3 +239,37 @@ q('transactions')
 | Dashboard integration | `packages/desktop-client/src/components/reports/Overview.tsx` |
 | Saved reports hook | `packages/desktop-client/src/hooks/useSavedReports.ts` |
 | Saved reports selector | `packages/desktop-client/src/components/reports/SavedReportsSelector.tsx` |
+| Widget registry | `packages/desktop-client/src/components/reports/widgetRegistry.tsx` |
+| Custom widget registrations | `packages/desktop-client/src/components/reports/customWidgetRegistrations.ts` |
+
+## Appendix E - Widget Registry Pattern
+
+Custom widgets use a registry pattern to minimize changes to core Actual files during upgrades.
+
+### How it works
+
+1. `widgetRegistry.tsx` provides registration and lookup functions
+2. `customWidgetRegistrations.ts` registers custom widgets (BudgetVsActual, CurrentAssetValue)
+3. `Overview.tsx` imports the registrations and uses registry functions for menu items and rendering
+
+### Adding a new custom widget
+
+1. Create your widget components (Card, Full page, Table, Spreadsheet)
+2. Add type definition to `dashboard.ts`
+3. Register the widget type in `app.ts` `isWidgetType()` array
+4. Add routes to `ReportRouter.tsx`
+5. Register the widget in `customWidgetRegistrations.ts`:
+   ```typescript
+   registerWidget({
+     type: 'my-widget-card',
+     Component: MyWidgetCard,
+     menuLabel: 'My Widget',
+   });
+   ```
+
+### Upgrade safety
+
+When upgrading Actual Budget:
+- **Safe**: All files in "Custom Widget Registrations" section
+- **Check**: `dashboard.ts`, `app.ts`, `ReportRouter.tsx` for merge conflicts
+- **Minimal risk**: `Overview.tsx` only has 3 lines of custom code (import + registry calls)

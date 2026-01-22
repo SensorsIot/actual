@@ -24,12 +24,17 @@ import type {
 } from 'loot-core/types/models';
 
 import { NON_DRAGGABLE_AREA_CLASS_NAME } from './constants';
+// Import custom widget registrations - this registers them with the widget registry
+import './customWidgetRegistrations';
 import { DashboardHeader } from './DashboardHeader';
+import {
+  getWidgetMenuItems,
+  isRegisteredWidget,
+  renderRegisteredWidget,
+} from './widgetRegistry';
 import { DashboardSelector } from './DashboardSelector';
 import { LoadingIndicator } from './LoadingIndicator';
-import { BudgetVsActualCard } from './reports/BudgetVsActualCard';
 import { CalendarCard } from './reports/CalendarCard';
-import { CurrentAssetValueCard } from './reports/CurrentAssetValueCard';
 import { CashFlowCard } from './reports/CashFlowCard';
 import { CrossoverCard } from './reports/CrossoverCard';
 import { CustomReportListCards } from './reports/CustomReportListCards';
@@ -488,7 +493,14 @@ export function Overview({ dashboard }: OverviewProps) {
                               return;
                             }
 
-                            onAddWidget(item);
+                            // Handle registered widgets from the registry
+                            if (isRegisteredWidget(item)) {
+                              onAddWidget(item as Widget['type']);
+                              return;
+                            }
+
+                            // Fallback for core widgets
+                            onAddWidget(item as Widget['type']);
                           }}
                           items={[
                             {
@@ -511,14 +523,8 @@ export function Overview({ dashboard }: OverviewProps) {
                               name: 'spending-card' as const,
                               text: t('Spending analysis'),
                             },
-                            {
-                              name: 'budget-vs-actual-card' as const,
-                              text: t('Budget vs Actual'),
-                            },
-                            {
-                              name: 'current-asset-value-card' as const,
-                              text: t('Current Asset Value'),
-                            },
+                            // Custom widgets from registry
+                            ...getWidgetMenuItems(t),
                             {
                               name: 'markdown-card' as const,
                               text: t('Text widget'),
@@ -713,28 +719,16 @@ export function Overview({ dashboard }: OverviewProps) {
                         onCopyWidget(item.i, targetDashboardId)
                       }
                     />
-                  ) : item.type === 'budget-vs-actual-card' ? (
-                    <BudgetVsActualCard
-                      widgetId={item.i}
-                      isEditing={isEditing}
-                      meta={item.meta}
-                      onMetaChange={newMeta => onMetaChange(item, newMeta)}
-                      onRemove={() => onRemoveWidget(item.i)}
-                      onCopy={targetDashboardId =>
-                        onCopyWidget(item.i, targetDashboardId)
-                      }
-                    />
-                  ) : item.type === 'current-asset-value-card' ? (
-                    <CurrentAssetValueCard
-                      widgetId={item.i}
-                      isEditing={isEditing}
-                      meta={item.meta}
-                      onMetaChange={newMeta => onMetaChange(item, newMeta)}
-                      onRemove={() => onRemoveWidget(item.i)}
-                      onCopy={targetDashboardId =>
-                        onCopyWidget(item.i, targetDashboardId)
-                      }
-                    />
+                  ) : isRegisteredWidget(item.type) ? (
+                    renderRegisteredWidget(item.type, {
+                      widgetId: item.i,
+                      isEditing,
+                      meta: item.meta,
+                      onMetaChange: newMeta => onMetaChange(item, newMeta),
+                      onRemove: () => onRemoveWidget(item.i),
+                      onCopy: targetDashboardId =>
+                        onCopyWidget(item.i, targetDashboardId),
+                    })
                   ) : item.type === 'markdown-card' ? (
                     <MarkdownCard
                       isEditing={isEditing}
