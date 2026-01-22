@@ -115,6 +115,14 @@ Report types:
 - Click to navigate to full report
 - Context menu actions (rename, remove, copy)
 
+### Saved Reports
+
+- Users can save the current report configuration with a custom name
+- Saved reports are stored in browser localStorage
+- A dropdown allows selecting and loading previously saved reports
+- Delete button removes saved reports
+- Saved reports persist across sessions (browser-local)
+
 ### Notes
 
 - Date selection supports named snapshots (e.g., "Today", "2025") and stores the chosen date/name
@@ -229,3 +237,5 @@ q('transactions')
 | Widget type validation | `packages/loot-core/src/server/dashboard/app.ts` |
 | Report routing | `packages/desktop-client/src/components/reports/ReportRouter.tsx` |
 | Dashboard integration | `packages/desktop-client/src/components/reports/Overview.tsx` |
+| Saved reports hook | `packages/desktop-client/src/hooks/useSavedReports.ts` |
+| Saved reports selector | `packages/desktop-client/src/components/reports/SavedReportsSelector.tsx` |

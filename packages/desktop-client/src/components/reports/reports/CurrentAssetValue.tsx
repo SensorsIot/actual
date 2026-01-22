@@ -28,6 +28,7 @@ import {
 import { PrivacyFilter } from '@desktop-client/components/PrivacyFilter';
 import { CurrentAssetValueTable } from '@desktop-client/components/reports/graphs/CurrentAssetValueTable';
 import { LoadingIndicator } from '@desktop-client/components/reports/LoadingIndicator';
+import { SavedReportsSelector } from '@desktop-client/components/reports/SavedReportsSelector';
 import {
   createCurrentAssetValueSpreadsheet,
   type CurrentAssetValueData,
@@ -80,6 +81,19 @@ function CurrentAssetValueInternal({ widget }: CurrentAssetValueInternalProps) {
   const [date, setDate] = useState(
     widget?.meta?.date || monthUtils.currentDay(),
   );
+
+  // Handler for loading a saved report
+  const handleLoadSavedReport = (config: {
+    date?: string;
+    conditions?: RuleConditionEntity[];
+    conditionsOp?: 'and' | 'or';
+  }) => {
+    if (config.date) {
+      setDate(config.date);
+    }
+    // Note: conditions loading would require refactoring useRuleConditionFilters
+    // to accept external updates. For now, we just load the date.
+  };
 
   const getGraphData = useMemo(
     () =>
@@ -205,6 +219,22 @@ function CurrentAssetValueInternal({ widget }: CurrentAssetValueInternalProps) {
         <Button onPress={() => setDate(monthUtils.currentDay())}>
           <Trans>Today</Trans>
         </Button>
+
+        <View
+          style={{
+            height: 'auto',
+            borderLeft: `1.5px solid ${theme.pillBorderDark}`,
+            borderRadius: 0.75,
+            marginLeft: 5,
+            marginRight: 5,
+          }}
+        />
+
+        <SavedReportsSelector
+          reportType="current-asset-value"
+          currentConfig={{ date, conditions, conditionsOp }}
+          onLoadReport={handleLoadSavedReport}
+        />
 
         {widget && (
           <Button variant="primary" onPress={onSaveWidget}>
