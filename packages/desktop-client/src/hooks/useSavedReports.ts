@@ -11,6 +11,7 @@ export type SavedReportConfig = {
   end?: string;
   mode?: TimeFrame['mode'];
   showHiddenCategories?: boolean;
+  showIncomeCategories?: boolean;
   // Shared
   conditions?: RuleConditionEntity[];
   conditionsOp?: 'and' | 'or';

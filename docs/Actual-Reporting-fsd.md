@@ -54,21 +54,41 @@ Report types:
 ### Data inputs
 
 - Budgeted amounts by category for the selected month range
-- Actual spending from transactions (expenses only)
+- Actual spending/income from transactions
 - Filters apply to both budget and actual queries
 - Respects show hidden categories setting
+- Option to show/hide income categories
 
 ### Grouping and totals
 
 - Categories grouped under category groups
 - Subtotals per group and grand totals
 
-### Variance rules
+### Sign convention and variance rules
 
-- Variance = budgeted - abs(actual)
-- Color rules:
-  - Under budget: `theme.noticeTextLight`
-  - Over budget: `theme.errorText`
+**Storage convention:**
+- Expense budgets: stored as POSITIVE (+500)
+- Income budgets: stored as NEGATIVE (-1000)
+- Expense transactions: stored as NEGATIVE (-300)
+- Income transactions: stored as POSITIVE (+1000)
+
+**Display transformation (all positive):**
+- Income: negate budget (−1000 → +1000), keep actual (+1000)
+- Expense: keep budget (+500), negate actual (−300 → +300)
+
+**Variance calculation:**
+- Formula: Actual - Budget (uniform for all categories)
+- Negative = unfavorable (earned less OR overspent)
+- Positive = favorable (earned more OR underspent)
+
+**Totals:**
+- Income values add to total
+- Expense values subtract from total
+- Net = Income - Expenses
+
+**Color rules:**
+- Positive variance: `theme.noticeTextLight` (green = favorable)
+- Negative variance: `theme.errorText` (red = unfavorable)
 
 ### Table layout
 
@@ -94,6 +114,12 @@ Table features:
 - Group subtotal rows and grand total row
 - Group rows use bold styling
 - **Transactions drilldown**: Click any actual amount to open a modal showing the underlying transactions
+
+### Toolbar buttons
+
+- **Show/Hide hidden categories**: Toggle to include hidden categories
+- **Show/Hide income**: Toggle to include income categories in the report
+- **Saved Reports**: Save and load report configurations
 
 ### Widget behavior
 

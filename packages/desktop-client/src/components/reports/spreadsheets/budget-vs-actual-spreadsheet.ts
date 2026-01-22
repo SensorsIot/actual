@@ -55,6 +55,7 @@ type CreateBudgetVsActualSpreadsheetProps = {
   conditions?: RuleConditionEntity[];
   conditionsOp?: 'and' | 'or';
   showHiddenCategories?: boolean;
+  showIncomeCategories?: boolean;
 };
 
 export function createBudgetVsActualSpreadsheet({
@@ -64,6 +65,7 @@ export function createBudgetVsActualSpreadsheet({
   conditions = [],
   conditionsOp = 'and',
   showHiddenCategories = false,
+  showIncomeCategories = false,
 }: CreateBudgetVsActualSpreadsheetProps) {
   return async (
     spreadsheet: ReturnType<typeof useSpreadsheet>,
@@ -118,13 +120,13 @@ export function createBudgetVsActualSpreadsheet({
       )
       .select(['category', 'month', 'amount']);
 
-    // Query actual spending per month (expenses only - negative amounts)
+    // Query actual spending/income per month
+    // For expenses: negative amounts, for income: positive amounts
     const actualQuery = q('transactions')
       .filter({
         $and: [
           { date: { $transform: '$month', $gte: startDate } },
           { date: { $transform: '$month', $lte: endDate } },
-          { amount: { $lt: 0 } },
         ],
       })
       .filter(
@@ -145,7 +147,20 @@ export function createBudgetVsActualSpreadsheet({
       aqlQuery(actualQuery).then(({ data }) => data),
     ]);
 
+    // Build a set of income category IDs for quick lookup
+    const incomeCategoryIds = new Set<string>();
+    for (const group of categories.grouped) {
+      if (group.is_income) {
+        for (const cat of group.categories || []) {
+          incomeCategoryIds.add(cat.id);
+        }
+      }
+    }
+
     // Create nested maps: category -> month -> amount
+    // Transform for display: all positive numbers
+    // 1. Income: negate budget (stored negative), keep actual (stored positive)
+    // 2. Expense: keep budget (stored positive), negate actual (stored negative)
     const budgetMap = new Map<string, Map<string, number>>();
     for (const item of budgetResult) {
       if (item.category) {
@@ -155,7 +170,12 @@ export function createBudgetVsActualSpreadsheet({
         // Convert YYYYMM to YYYY-MM
         const monthStr = String(item.month);
         const formattedMonth = `${monthStr.slice(0, 4)}-${monthStr.slice(4)}`;
-        budgetMap.get(item.category)!.set(formattedMonth, item.amount || 0);
+        const isIncome = incomeCategoryIds.has(item.category);
+        const amount = item.amount || 0;
+        // Income: negate (stored negative → display positive)
+        // Expense: keep as-is (stored positive → display positive)
+        const displayAmount = isIncome ? -amount : amount;
+        budgetMap.get(item.category)!.set(formattedMonth, displayAmount);
       }
     }
 
@@ -165,10 +185,12 @@ export function createBudgetVsActualSpreadsheet({
         if (!actualMap.has(item.category)) {
           actualMap.set(item.category, new Map());
         }
-        // Actual spending is negative, so we'll use absolute value
-        actualMap
-          .get(item.category)!
-          .set(item.month, Math.abs(item.amount || 0));
+        const isIncome = incomeCategoryIds.has(item.category);
+        const amount = item.amount || 0;
+        // Income: keep as-is (stored positive → display positive)
+        // Expense: negate (stored negative → display positive)
+        const displayAmount = isIncome ? amount : -amount;
+        actualMap.get(item.category)!.set(item.month, displayAmount);
       }
     }
 
@@ -189,10 +211,12 @@ export function createBudgetVsActualSpreadsheet({
         continue;
       }
 
-      // Skip income groups
-      if (group.is_income) {
+      // Skip income groups unless showIncomeCategories is true
+      if (group.is_income && !showIncomeCategories) {
         continue;
       }
+
+      const isIncomeGroup = group.is_income;
 
       const groupCategories: BudgetVsActualCategoryData[] = [];
       let groupBudgeted = 0;
@@ -231,7 +255,10 @@ export function createBudgetVsActualSpreadsheet({
           groupMonthlyData[month].actual += actual;
         }
 
-        const variance = categoryBudgeted - categoryActual;
+        // Variance = Actual - Budget (all display values are positive)
+        // For income: negative variance = earned less than expected (bad)
+        // For expense: positive variance = spent more than budget (bad)
+        const variance = categoryActual - categoryBudgeted;
 
         groupCategories.push({
           id: category.id,
@@ -248,26 +275,43 @@ export function createBudgetVsActualSpreadsheet({
 
       // Only include groups that have categories
       if (groupCategories.length > 0) {
+        // Variance = Actual - Budget
+        const groupVariance = groupActual - groupBudgeted;
+
         groups.push({
           id: group.id,
           name: group.name,
           monthlyData: groupMonthlyData,
           budgeted: groupBudgeted,
           actual: groupActual,
-          variance: groupBudgeted - groupActual,
+          variance: groupVariance,
           categories: groupCategories,
         });
 
-        totalBudgeted += groupBudgeted;
-        totalActual += groupActual;
+        // For totals: Income adds, Expense subtracts
+        if (isIncomeGroup) {
+          totalBudgeted += groupBudgeted;
+          totalActual += groupActual;
+        } else {
+          totalBudgeted -= groupBudgeted;
+          totalActual -= groupActual;
+        }
 
-        // Accumulate to total monthly data
+        // Accumulate to total monthly data (income adds, expense subtracts)
         for (const month of months) {
-          totalMonthlyData[month].budgeted += groupMonthlyData[month].budgeted;
-          totalMonthlyData[month].actual += groupMonthlyData[month].actual;
+          if (isIncomeGroup) {
+            totalMonthlyData[month].budgeted += groupMonthlyData[month].budgeted;
+            totalMonthlyData[month].actual += groupMonthlyData[month].actual;
+          } else {
+            totalMonthlyData[month].budgeted -= groupMonthlyData[month].budgeted;
+            totalMonthlyData[month].actual -= groupMonthlyData[month].actual;
+          }
         }
       }
     }
+
+    // Total variance = Actual - Budget
+    const totalVariance = totalActual - totalBudgeted;
 
     setData({
       groups,
@@ -275,7 +319,7 @@ export function createBudgetVsActualSpreadsheet({
       totalMonthlyData,
       totalBudgeted,
       totalActual,
-      totalVariance: totalBudgeted - totalActual,
+      totalVariance,
       startDate,
       endDate,
     });

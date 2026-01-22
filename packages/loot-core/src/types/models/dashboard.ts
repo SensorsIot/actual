@@ -98,6 +98,7 @@ export type BudgetVsActualWidget = AbstractWidget<
     conditionsOp?: 'and' | 'or';
     timeFrame?: TimeFrame;
     showHiddenCategories?: boolean;
+    showIncomeCategories?: boolean;
     savedPresets?: Array<{
       id: string;
       name: string;

@@ -97,6 +97,9 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
   const [showHiddenCategories, setShowHiddenCategories] = useState(
     widget?.meta?.showHiddenCategories ?? false,
   );
+  const [showIncomeCategories, setShowIncomeCategories] = useState(
+    widget?.meta?.showIncomeCategories ?? false,
+  );
   const [latestTransaction, setLatestTransaction] = useState('');
   const [earliestTransaction, setEarliestTransaction] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -179,9 +182,10 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
         conditions,
         conditionsOp,
         showHiddenCategories,
+        showIncomeCategories,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [start, end, categories, conditions, conditionsOp, showHiddenCategories, refreshKey],
+    [start, end, categories, conditions, conditionsOp, showHiddenCategories, showIncomeCategories, refreshKey],
   );
 
   const data = useReport<BudgetVsActualData>('budget-vs-actual', getGraphData);
@@ -204,6 +208,9 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
     }
     if (config.showHiddenCategories !== undefined) {
       setShowHiddenCategories(config.showHiddenCategories);
+    }
+    if (config.showIncomeCategories !== undefined) {
+      setShowIncomeCategories(config.showIncomeCategories);
     }
   };
 
@@ -252,6 +259,15 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
               : t('Show hidden categories')}
           </Button>
 
+          <Button
+            onPress={() => setShowIncomeCategories(state => !state)}
+            variant={showIncomeCategories ? 'primary' : 'normal'}
+          >
+            {showIncomeCategories
+              ? t('Hide income')
+              : t('Show income')}
+          </Button>
+
           <View
             style={{
               height: 'auto',
@@ -269,6 +285,7 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
               end,
               mode,
               showHiddenCategories,
+              showIncomeCategories,
               conditions,
               conditionsOp,
             }}

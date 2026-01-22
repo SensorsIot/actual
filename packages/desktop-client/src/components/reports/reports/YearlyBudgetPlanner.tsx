@@ -169,13 +169,27 @@ export function YearlyBudgetPlanner() {
 
     setSaving(true);
     try {
-      // Save all edited budgets
+      // Build income category ID set
+      const incomeCategoryIds = new Set<string>();
+      for (const group of categories.grouped) {
+        if (group.is_income) {
+          for (const cat of group.categories || []) {
+            incomeCategoryIds.add(cat.id);
+          }
+        }
+      }
+
+      // Save all edited budgets with transformation
+      // User enters positive, we store: income negative, expense positive
       for (const [categoryId, months] of Object.entries(editedBudgets)) {
-        for (const [month, amount] of Object.entries(months)) {
+        const isIncome = incomeCategoryIds.has(categoryId);
+        for (const [month, displayAmount] of Object.entries(months)) {
+          // Transform for storage: income negated, expense kept
+          const storageAmount = isIncome ? -displayAmount : displayAmount;
           await send('budget/budget-amount', {
             month,
             category: categoryId,
-            amount,
+            amount: storageAmount,
           });
         }
       }

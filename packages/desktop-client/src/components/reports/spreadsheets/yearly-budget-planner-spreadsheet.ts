@@ -90,7 +90,18 @@ export async function loadYearlyBudgetPlannerData({
   const lastYearResult = await aqlQuery(lastYearQuery);
   const lastYearData = lastYearResult.data || [];
 
+  // Build a set of income category IDs for quick lookup
+  const incomeCategoryIds = new Set<string>();
+  for (const group of categories.grouped) {
+    if (group.is_income) {
+      for (const cat of group.categories || []) {
+        incomeCategoryIds.add(cat.id);
+      }
+    }
+  }
+
   // Create a map of category -> month -> amount for budgets
+  // Transform for display: Income negated, Expense kept
   const budgetMap = new Map<string, Map<string, number>>();
   for (const item of budgetData) {
     if (item.category) {
@@ -100,15 +111,26 @@ export async function loadYearlyBudgetPlannerData({
       // Convert YYYYMM to YYYY-MM
       const monthStr = String(item.month);
       const formattedMonth = `${monthStr.slice(0, 4)}-${monthStr.slice(4)}`;
-      budgetMap.get(item.category)!.set(formattedMonth, item.amount || 0);
+      const isIncome = incomeCategoryIds.has(item.category);
+      const amount = item.amount || 0;
+      // Income: negate (stored negative → display positive)
+      // Expense: keep (stored positive → display positive)
+      const displayAmount = isIncome ? -amount : amount;
+      budgetMap.get(item.category)!.set(formattedMonth, displayAmount);
     }
   }
 
   // Create a map of category -> last year amount
+  // Transform for display: Income kept, Expense negated
   const lastYearMap = new Map<string, number>();
   for (const item of lastYearData) {
     if (item.category) {
-      lastYearMap.set(item.category, item.amount || 0);
+      const isIncome = incomeCategoryIds.has(item.category);
+      const amount = item.amount || 0;
+      // Income: keep (stored positive → display positive)
+      // Expense: negate (stored negative → display positive)
+      const displayAmount = isIncome ? amount : -amount;
+      lastYearMap.set(item.category, displayAmount);
     }
   }
 
@@ -192,9 +214,9 @@ export async function loadYearlyBudgetPlannerData({
     months,
     totalIncome,
     totalExpenses,
-    netAmount: totalIncome + totalExpenses,
+    netAmount: totalIncome - totalExpenses,
     lastYearTotalIncome,
     lastYearTotalExpenses,
-    lastYearNetAmount: lastYearTotalIncome + lastYearTotalExpenses,
+    lastYearNetAmount: lastYearTotalIncome - lastYearTotalExpenses,
   };
 }
