@@ -10,9 +10,15 @@ import {
 import { type useSpreadsheet } from '@desktop-client/hooks/useSpreadsheet';
 import { aqlQuery } from '@desktop-client/queries/aqlQuery';
 
+export type MonthlyBudgetActual = {
+  budgeted: number;
+  actual: number;
+};
+
 export type BudgetVsActualCategoryData = {
   id: string;
   name: string;
+  monthlyData: Record<string, MonthlyBudgetActual>; // month (YYYY-MM) -> data
   budgeted: number;
   actual: number;
   variance: number;
@@ -21,6 +27,7 @@ export type BudgetVsActualCategoryData = {
 export type BudgetVsActualGroupData = {
   id: string;
   name: string;
+  monthlyData: Record<string, MonthlyBudgetActual>; // month (YYYY-MM) -> data
   budgeted: number;
   actual: number;
   variance: number;
@@ -29,6 +36,8 @@ export type BudgetVsActualGroupData = {
 
 export type BudgetVsActualData = {
   groups: BudgetVsActualGroupData[];
+  months: string[]; // Array of months in YYYY-MM format
+  totalMonthlyData: Record<string, MonthlyBudgetActual>; // month (YYYY-MM) -> data
   totalBudgeted: number;
   totalActual: number;
   totalVariance: number;
@@ -79,29 +88,37 @@ export function createBudgetVsActualSpreadsheet({
 
     const conditionsOpKey = conditionsOp === 'or' ? '$or' : '$and';
 
+    // Generate list of months between startDate and endDate
+    const months: string[] = [];
+    let currentMonth = monthUtils.getMonth(startDate);
+    const lastMonth = monthUtils.getMonth(endDate);
+    while (currentMonth <= lastMonth) {
+      months.push(currentMonth);
+      currentMonth = monthUtils.addMonths(currentMonth, 1);
+    }
+
     // Convert dates to month numbers (YYYYMM format) for budget query
-    const startMonth = parseInt(
+    const startMonthInt = parseInt(
       monthUtils.getMonth(startDate).replace('-', ''),
     );
-    const endMonth = parseInt(monthUtils.getMonth(endDate).replace('-', ''));
+    const endMonthInt = parseInt(monthUtils.getMonth(endDate).replace('-', ''));
 
-    // Query budget data - sum budget amounts across the date range
+    // Query budget data - get per-month data (not aggregated)
     const budgetQuery = q('zero_budgets')
       .filter({
-        $and: [{ month: { $gte: startMonth } }, { month: { $lte: endMonth } }],
+        $and: [
+          { month: { $gte: startMonthInt } },
+          { month: { $lte: endMonthInt } },
+        ],
       })
       .filter(
         categoryFilters.length > 0
           ? { [conditionsOpKey]: categoryFilters }
           : {},
       )
-      .groupBy([{ $id: '$category' }])
-      .select([
-        { category: { $id: '$category' } },
-        { amount: { $sum: '$amount' } },
-      ]);
+      .select(['category', 'month', 'amount']);
 
-    // Query actual spending (expenses only - negative amounts)
+    // Query actual spending per month (expenses only - negative amounts)
     const actualQuery = q('transactions')
       .filter({
         $and: [
@@ -116,9 +133,10 @@ export function createBudgetVsActualSpreadsheet({
           : {},
       )
       .filter({ 'account.offbudget': false })
-      .groupBy([{ $id: '$category' }])
+      .groupBy([{ $id: '$category' }, { $month: '$date' }])
       .select([
         { category: { $id: '$category.id' } },
+        { month: { $month: '$date' } },
         { amount: { $sum: '$amount' } },
       ]);
 
@@ -127,19 +145,30 @@ export function createBudgetVsActualSpreadsheet({
       aqlQuery(actualQuery).then(({ data }) => data),
     ]);
 
-    // Create maps for easy lookup
-    const budgetMap = new Map<string, number>();
+    // Create nested maps: category -> month -> amount
+    const budgetMap = new Map<string, Map<string, number>>();
     for (const item of budgetResult) {
       if (item.category) {
-        budgetMap.set(item.category, item.amount || 0);
+        if (!budgetMap.has(item.category)) {
+          budgetMap.set(item.category, new Map());
+        }
+        // Convert YYYYMM to YYYY-MM
+        const monthStr = String(item.month);
+        const formattedMonth = `${monthStr.slice(0, 4)}-${monthStr.slice(4)}`;
+        budgetMap.get(item.category)!.set(formattedMonth, item.amount || 0);
       }
     }
 
-    const actualMap = new Map<string, number>();
+    const actualMap = new Map<string, Map<string, number>>();
     for (const item of actualResult) {
       if (item.category) {
+        if (!actualMap.has(item.category)) {
+          actualMap.set(item.category, new Map());
+        }
         // Actual spending is negative, so we'll use absolute value
-        actualMap.set(item.category, Math.abs(item.amount || 0));
+        actualMap
+          .get(item.category)!
+          .set(item.month, Math.abs(item.amount || 0));
       }
     }
 
@@ -147,6 +176,12 @@ export function createBudgetVsActualSpreadsheet({
     const groups: BudgetVsActualGroupData[] = [];
     let totalBudgeted = 0;
     let totalActual = 0;
+    const totalMonthlyData: Record<string, MonthlyBudgetActual> = {};
+
+    // Initialize total monthly data
+    for (const month of months) {
+      totalMonthlyData[month] = { budgeted: 0, actual: 0 };
+    }
 
     for (const group of categories.grouped) {
       // Skip hidden groups unless showHiddenCategories is true
@@ -162,6 +197,12 @@ export function createBudgetVsActualSpreadsheet({
       const groupCategories: BudgetVsActualCategoryData[] = [];
       let groupBudgeted = 0;
       let groupActual = 0;
+      const groupMonthlyData: Record<string, MonthlyBudgetActual> = {};
+
+      // Initialize group monthly data
+      for (const month of months) {
+        groupMonthlyData[month] = { budgeted: 0, actual: 0 };
+      }
 
       const categoryList = group.categories || [];
       for (const category of categoryList) {
@@ -170,27 +211,47 @@ export function createBudgetVsActualSpreadsheet({
           continue;
         }
 
-        const budgeted = budgetMap.get(category.id) || 0;
-        const actual = actualMap.get(category.id) || 0;
-        const variance = budgeted - actual;
+        const categoryBudgetMap = budgetMap.get(category.id);
+        const categoryActualMap = actualMap.get(category.id);
+
+        const categoryMonthlyData: Record<string, MonthlyBudgetActual> = {};
+        let categoryBudgeted = 0;
+        let categoryActual = 0;
+
+        for (const month of months) {
+          const budgeted = categoryBudgetMap?.get(month) || 0;
+          const actual = categoryActualMap?.get(month) || 0;
+
+          categoryMonthlyData[month] = { budgeted, actual };
+          categoryBudgeted += budgeted;
+          categoryActual += actual;
+
+          // Accumulate to group
+          groupMonthlyData[month].budgeted += budgeted;
+          groupMonthlyData[month].actual += actual;
+        }
+
+        const variance = categoryBudgeted - categoryActual;
 
         groupCategories.push({
           id: category.id,
           name: category.name,
-          budgeted,
-          actual,
+          monthlyData: categoryMonthlyData,
+          budgeted: categoryBudgeted,
+          actual: categoryActual,
           variance,
         });
 
-        groupBudgeted += budgeted;
-        groupActual += actual;
+        groupBudgeted += categoryBudgeted;
+        groupActual += categoryActual;
       }
 
-      // Only include groups that have categories with data or budget
+      // Only include groups that have categories
       if (groupCategories.length > 0) {
         groups.push({
           id: group.id,
           name: group.name,
+          monthlyData: groupMonthlyData,
           budgeted: groupBudgeted,
           actual: groupActual,
           variance: groupBudgeted - groupActual,
@@ -199,11 +260,19 @@ export function createBudgetVsActualSpreadsheet({
 
         totalBudgeted += groupBudgeted;
         totalActual += groupActual;
+
+        // Accumulate to total monthly data
+        for (const month of months) {
+          totalMonthlyData[month].budgeted += groupMonthlyData[month].budgeted;
+          totalMonthlyData[month].actual += groupMonthlyData[month].actual;
+        }
       }
     }
 
     setData({
       groups,
+      months,
+      totalMonthlyData,
       totalBudgeted,
       totalActual,
       totalVariance: totalBudgeted - totalActual,

@@ -72,7 +72,22 @@ Report types:
 
 ### Table layout
 
-- Columns: Category, Budgeted, Actual, Variance
+Two-row header structure:
+- First row: Category | Month names (centered over Bud/Act pairs) | Total (centered over summary columns)
+- Second row: (empty) | Bud | Act (per month) | Bud | Act | Var | %
+
+Columns:
+- **Category**: Category name (grouped under category groups)
+- **Monthly columns** (up to 12 months based on date range):
+  - Per month: Budgeted and Actual amounts
+  - Month name appears above the Bud/Act pair
+- **Total section**:
+  - Total Budgeted (sum across all months)
+  - Total Actual (sum across all months)
+  - Variance (budgeted - actual)
+  - % (percentage variance, hidden in compact mode)
+
+Table features:
 - Collapsible category groups (click to expand/collapse)
 - Group subtotal rows and grand total row
 - Group rows use bold styling
@@ -256,9 +271,10 @@ Column widths:
 ## Appendix A - Data Models and Types
 
 ### Budget vs Actual
-- `BudgetVsActualCategoryData`: id, name, budgeted, actual, variance
-- `BudgetVsActualGroupData`: id, name, budgeted, actual, variance, categories
-- `BudgetVsActualData`: groups, totalBudgeted, totalActual, totalVariance, startDate, endDate
+- `MonthlyBudgetActual`: budgeted, actual
+- `BudgetVsActualCategoryData`: id, name, monthlyData (Record<month, MonthlyBudgetActual>), budgeted, actual, variance
+- `BudgetVsActualGroupData`: id, name, monthlyData (Record<month, MonthlyBudgetActual>), budgeted, actual, variance, categories
+- `BudgetVsActualData`: groups, months (string[]), totalMonthlyData (Record<month, MonthlyBudgetActual>), totalBudgeted, totalActual, totalVariance, startDate, endDate
 - `BudgetVsActualWidget`: name, conditions, conditionsOp, timeFrame, showHiddenCategories
 
 ### Current Asset Value
@@ -275,8 +291,9 @@ Column widths:
 ## Appendix B - Query and Calculation Logic
 
 - Budget vs Actual queries
-  - Budgets (zero_budgets), grouped by category across the month range
-  - Transactions (expenses only), grouped by category across the date range
+  - Budgets (zero_budgets), per month per category across the month range
+  - Transactions (expenses only), per month per category across the date range
+  - Monthly data aggregated to group and total levels
   - Variance = budgeted - abs(actual)
   - Month format uses YYYYMM integers derived from the selected dates
 - Current Asset Value queries
@@ -288,7 +305,7 @@ Schema reference:
 - `zero_budgets`: envelope budgeting
 - `reflect_budgets`: tracking budgeting (same schema as zero_budgets)
 
-Budget query:
+Budget query (per month):
 ```typescript
 q('zero_budgets')
   .filter({
@@ -297,27 +314,24 @@ q('zero_budgets')
       { month: { $lte: endMonth } },
     ],
   })
-  .groupBy(['category'])
-  .select([
-    { category: 'category' },
-    { amount: { $sum: '$amount' } },
-  ]);
+  .select(['category', 'month', 'amount']);
 ```
 
-Transaction query:
+Transaction query (per month):
 ```typescript
 q('transactions')
   .filter({
-    [conditionsOpKey]: [
-      ...transactionFilters,
-      { date: { $gte: startDate } },
-      { date: { $lte: endDate } },
+    $and: [
+      { date: { $transform: '$month', $gte: startDate } },
+      { date: { $transform: '$month', $lte: endDate } },
       { amount: { $lt: 0 } },
     ],
   })
-  .groupBy([{ $id: '$category' }])
+  .filter({ 'account.offbudget': false })
+  .groupBy([{ $id: '$category' }, { $month: '$date' }])
   .select([
-    { category: { $id: '$category' } },
+    { category: { $id: '$category.id' } },
+    { month: { $month: '$date' } },
     { amount: { $sum: '$amount' } },
   ]);
 ```

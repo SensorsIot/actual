@@ -1,13 +1,19 @@
-import { useState } from 'react';
-import { Trans } from 'react-i18next';
+import { useMemo, useState } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
 
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
+import * as monthUtils from 'loot-core/shared/months';
+
 import { PrivacyFilter } from '@desktop-client/components/PrivacyFilter';
-import { type BudgetVsActualData } from '@desktop-client/components/reports/spreadsheets/budget-vs-actual-spreadsheet';
+import {
+  type BudgetVsActualData,
+  type MonthlyBudgetActual,
+} from '@desktop-client/components/reports/spreadsheets/budget-vs-actual-spreadsheet';
 import { Row, Cell } from '@desktop-client/components/table';
 import { useFormat } from '@desktop-client/hooks/useFormat';
+import { useLocale } from '@desktop-client/hooks/useLocale';
 
 type BudgetVsActualTableProps = {
   data: BudgetVsActualData;
@@ -18,7 +24,9 @@ export function BudgetVsActualTable({
   data,
   compact = false,
 }: BudgetVsActualTableProps) {
+  const { t } = useTranslation();
   const format = useFormat();
+  const locale = useLocale();
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     new Set(data.groups.map(g => g.id)),
   );
@@ -53,37 +61,91 @@ export function BudgetVsActualTable({
     return percent >= 0 ? `+${formatted}%` : `-${formatted}%`;
   };
 
-  const categoryWidth = compact ? 150 : 200;
-  const amountWidth = compact ? 80 : 100;
+  const monthNames = useMemo(() => {
+    return data.months.map(month => monthUtils.format(month, 'MMM', locale));
+  }, [data.months, locale]);
+
+  const categoryWidth = compact ? 150 : 180;
+  const monthAmountWidth = compact ? 60 : 70;
+  const totalAmountWidth = compact ? 70 : 85;
+  const varianceWidth = compact ? 70 : 85;
+  const percentWidth = 55;
+
+  const renderMonthlyHeaders = () => {
+    return data.months.map((month, idx) => (
+      <View key={month} style={{ flexDirection: 'column' }}>
+        <Cell width={monthAmountWidth * 2} plain style={{ textAlign: 'center' }}>
+          {monthNames[idx]}
+        </Cell>
+        <View style={{ flexDirection: 'row' }}>
+          <Cell width={monthAmountWidth} plain style={{ textAlign: 'right' }}>
+            {t('Bud')}
+          </Cell>
+          <Cell width={monthAmountWidth} plain style={{ textAlign: 'right' }}>
+            {t('Act')}
+          </Cell>
+        </View>
+      </View>
+    ));
+  };
+
+  const renderMonthlyCells = (
+    monthlyData: Record<string, MonthlyBudgetActual>,
+  ) => {
+    return data.months.map(month => {
+      const monthData = monthlyData[month] || { budgeted: 0, actual: 0 };
+      return (
+        <View key={month} style={{ flexDirection: 'row' }}>
+          <Cell width={monthAmountWidth} plain style={{ textAlign: 'right' }}>
+            <PrivacyFilter>{format(monthData.budgeted, 'financial')}</PrivacyFilter>
+          </Cell>
+          <Cell width={monthAmountWidth} plain style={{ textAlign: 'right' }}>
+            <PrivacyFilter>{format(monthData.actual, 'financial')}</PrivacyFilter>
+          </Cell>
+        </View>
+      );
+    });
+  };
 
   return (
     <View style={{ flex: 1 }}>
       {/* Header */}
-      <Row
+      <View
         style={{
+          flexDirection: 'row',
           fontWeight: 600,
           backgroundColor: theme.tableHeaderBackground,
           color: theme.tableHeaderText,
         }}
       >
-        <Cell width={categoryWidth} plain>
-          <Trans>Category</Trans>
-        </Cell>
-        <Cell width={amountWidth} plain style={{ textAlign: 'right' }}>
-          <Trans>Budgeted</Trans>
-        </Cell>
-        <Cell width={amountWidth} plain style={{ textAlign: 'right' }}>
-          <Trans>Actual</Trans>
-        </Cell>
-        <Cell width={amountWidth} plain style={{ textAlign: 'right' }}>
-          <Trans>Variance</Trans>
-        </Cell>
-        {!compact && (
-          <Cell width={70} plain style={{ textAlign: 'right' }}>
-            %
+        <View style={{ flexDirection: 'column', justifyContent: 'flex-end' }}>
+          <Cell width={categoryWidth} plain style={{ height: 'auto' }}>
+            <Trans>Category</Trans>
           </Cell>
-        )}
-      </Row>
+        </View>
+        {renderMonthlyHeaders()}
+        <View style={{ flexDirection: 'column' }}>
+          <Cell width={totalAmountWidth * 2 + varianceWidth + (compact ? 0 : percentWidth)} plain style={{ textAlign: 'center' }}>
+            <Trans>Total</Trans>
+          </Cell>
+          <View style={{ flexDirection: 'row' }}>
+            <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
+              {t('Bud')}
+            </Cell>
+            <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
+              {t('Act')}
+            </Cell>
+            <Cell width={varianceWidth} plain style={{ textAlign: 'right' }}>
+              {t('Var')}
+            </Cell>
+            {!compact && (
+              <Cell width={percentWidth} plain style={{ textAlign: 'right' }}>
+                %
+              </Cell>
+            )}
+          </View>
+        </View>
+      </View>
 
       {/* Groups and Categories */}
       <View style={{ flex: 1, overflowY: 'auto' }}>
@@ -115,31 +177,26 @@ export function BudgetVsActualTable({
                   {group.name}
                 </View>
               </Cell>
-              <Cell width={amountWidth} plain style={{ textAlign: 'right' }}>
-                <PrivacyFilter>
-                  {format(group.budgeted, 'financial')}
-                </PrivacyFilter>
+              {renderMonthlyCells(group.monthlyData)}
+              <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
+                <PrivacyFilter>{format(group.budgeted, 'financial')}</PrivacyFilter>
               </Cell>
-              <Cell width={amountWidth} plain style={{ textAlign: 'right' }}>
-                <PrivacyFilter>
-                  {format(group.actual, 'financial')}
-                </PrivacyFilter>
+              <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
+                <PrivacyFilter>{format(group.actual, 'financial')}</PrivacyFilter>
               </Cell>
               <Cell
-                width={amountWidth}
+                width={varianceWidth}
                 plain
                 style={{
                   textAlign: 'right',
                   color: getVarianceColor(group.variance),
                 }}
               >
-                <PrivacyFilter>
-                  {format(group.variance, 'financial')}
-                </PrivacyFilter>
+                <PrivacyFilter>{format(group.variance, 'financial')}</PrivacyFilter>
               </Cell>
               {!compact && (
                 <Cell
-                  width={70}
+                  width={percentWidth}
                   plain
                   style={{
                     textAlign: 'right',
@@ -160,26 +217,19 @@ export function BudgetVsActualTable({
                   <Cell width={categoryWidth} plain>
                     <View style={{ paddingLeft: 20 }}>{category.name}</View>
                   </Cell>
-                  <Cell
-                    width={amountWidth}
-                    plain
-                    style={{ textAlign: 'right' }}
-                  >
+                  {renderMonthlyCells(category.monthlyData)}
+                  <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
                     <PrivacyFilter>
                       {format(category.budgeted, 'financial')}
                     </PrivacyFilter>
                   </Cell>
-                  <Cell
-                    width={amountWidth}
-                    plain
-                    style={{ textAlign: 'right' }}
-                  >
+                  <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
                     <PrivacyFilter>
                       {format(category.actual, 'financial')}
                     </PrivacyFilter>
                   </Cell>
                   <Cell
-                    width={amountWidth}
+                    width={varianceWidth}
                     plain
                     style={{
                       textAlign: 'right',
@@ -192,7 +242,7 @@ export function BudgetVsActualTable({
                   </Cell>
                   {!compact && (
                     <Cell
-                      width={70}
+                      width={percentWidth}
                       plain
                       style={{
                         textAlign: 'right',
@@ -222,31 +272,26 @@ export function BudgetVsActualTable({
           <Cell width={categoryWidth} plain>
             <Trans>Total</Trans>
           </Cell>
-          <Cell width={amountWidth} plain style={{ textAlign: 'right' }}>
-            <PrivacyFilter>
-              {format(data.totalBudgeted, 'financial')}
-            </PrivacyFilter>
+          {renderMonthlyCells(data.totalMonthlyData)}
+          <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
+            <PrivacyFilter>{format(data.totalBudgeted, 'financial')}</PrivacyFilter>
           </Cell>
-          <Cell width={amountWidth} plain style={{ textAlign: 'right' }}>
-            <PrivacyFilter>
-              {format(data.totalActual, 'financial')}
-            </PrivacyFilter>
+          <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
+            <PrivacyFilter>{format(data.totalActual, 'financial')}</PrivacyFilter>
           </Cell>
           <Cell
-            width={amountWidth}
+            width={varianceWidth}
             plain
             style={{
               textAlign: 'right',
               color: getVarianceColor(data.totalVariance),
             }}
           >
-            <PrivacyFilter>
-              {format(data.totalVariance, 'financial')}
-            </PrivacyFilter>
+            <PrivacyFilter>{format(data.totalVariance, 'financial')}</PrivacyFilter>
           </Cell>
           {!compact && (
             <Cell
-              width={70}
+              width={percentWidth}
               plain
               style={{
                 textAlign: 'right',
