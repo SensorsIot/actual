@@ -282,14 +282,27 @@ Column widths:
 
 ### Transactions Drilldown Modal
 - Modal name: `transactions-drilldown`
-- Options: categoryId, categoryName, month (optional), startDate, endDate
-- Displays: Date, Payee, Category, Notes, Amount columns with total row
+- Options: categoryId, categoryName, month (optional), startDate, endDate, onTransactionChange (callback)
+- Modal width: 900px (max 95vw)
+- Columns: Date (100px), Payee (200px), Category (180px), Notes (flex), Amount (100px)
+- Displays total row with transaction count
 - Query: Transactions filtered by category and date range
-- **Category editing**: Click category column to change transaction's category
-  - Opens `category-autocomplete` modal for selection
-  - Transaction removed from list after change (no longer in this category)
-  - Total updates automatically
-  - Uses `transaction-update` API to persist change
+
+**Category display**:
+- Shows group and category name (e.g., "Lebensunterhalt: Staat")
+- Uses `useCategories` hook to resolve group names
+
+**Category editing**:
+- Click category column to change transaction's category
+- Opens `category-autocomplete` modal for selection
+- Transaction removed from list after change (no longer in this category)
+- Total updates automatically
+- Uses `transaction-update` API to persist change
+- Calls `onTransactionChange` callback to trigger parent data refresh
+
+**Auto-close behavior**:
+- When last transaction is moved to another category, modal closes automatically
+- Parent report (Budget vs Actual) refreshes via `refreshKey` state
 
 ### Current Asset Value
 - `CurrentAssetValueAccountData`: id, name, balance
