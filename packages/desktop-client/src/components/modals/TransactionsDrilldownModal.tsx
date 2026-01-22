@@ -15,7 +15,7 @@ import { Modal, ModalCloseButton, ModalHeader } from '@desktop-client/components
 import { PrivacyFilter } from '@desktop-client/components/PrivacyFilter';
 import { Row, Cell, Field, Table } from '@desktop-client/components/table';
 import { DisplayId } from '@desktop-client/components/util/DisplayId';
-import { useCategory } from '@desktop-client/hooks/useCategory';
+import { useCategories } from '@desktop-client/hooks/useCategories';
 import { useDateFormat } from '@desktop-client/hooks/useDateFormat';
 import { useFormat } from '@desktop-client/hooks/useFormat';
 import { useModalState } from '@desktop-client/hooks/useModalState';
@@ -32,13 +32,24 @@ type TransactionsDrilldownModalProps = {
   onTransactionChange?: () => void;
 };
 
-// Helper component to display category name
+// Helper component to display category name with group
 function CategoryDisplay({ id }: { id: string | null }) {
   const { t } = useTranslation();
-  const category = useCategory(id || '');
+  const { list: categories, grouped } = useCategories();
 
-  if (!id || !category) {
+  if (!id) {
     return <span style={{ color: theme.pageTextSubdued }}>{t('Uncategorized')}</span>;
+  }
+
+  const category = categories.find(c => c.id === id);
+  if (!category) {
+    return <span style={{ color: theme.pageTextSubdued }}>{t('Uncategorized')}</span>;
+  }
+
+  // Find the group for this category
+  const group = grouped.find(g => g.categories?.some(c => c.id === id));
+  if (group) {
+    return <span>{group.name}: {category.name}</span>;
   }
 
   return <span>{category.name}</span>;
@@ -112,9 +123,14 @@ export function TransactionsDrilldownModal({
               });
 
               // Remove the transaction from the list since it's no longer in this category
-              setTransactions(prev =>
-                prev.filter(t => t.id !== transaction.id),
-              );
+              setTransactions(prev => {
+                const newList = prev.filter(t => t.id !== transaction.id);
+                // If no transactions left, close the modal
+                if (newList.length === 0) {
+                  setTimeout(() => onClose(), 100);
+                }
+                return newList;
+              });
 
               // Notify parent that a transaction was changed
               onTransactionChange?.();
