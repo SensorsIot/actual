@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 
-import { styles } from '@actual-app/components/styles';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
@@ -112,17 +111,25 @@ export function BudgetVsActualTable({
 
   const renderMonthlyHeaders = () => {
     return data.months.map((month, idx) => (
-      <Cell
+      <View
         key={month}
-        width={monthAmountWidth}
-        plain
         style={{
-          textAlign: 'center',
+          flexDirection: 'column',
           borderRight: `1px solid ${theme.tableBorder}`,
         }}
       >
-        {monthNames[idx]}
-      </Cell>
+        <Cell width={monthAmountWidth * 2} plain style={{ textAlign: 'center' }}>
+          {monthNames[idx]}
+        </Cell>
+        <View style={{ flexDirection: 'row' }}>
+          <Cell width={monthAmountWidth} plain style={{ textAlign: 'right' }}>
+            {t('Bud')}
+          </Cell>
+          <Cell width={monthAmountWidth} plain style={{ textAlign: 'right' }}>
+            {t('Act')}
+          </Cell>
+        </View>
+      </View>
     ));
   };
 
@@ -135,37 +142,35 @@ export function BudgetVsActualTable({
       const monthData = monthlyData[month] || { budgeted: 0, actual: 0 };
       const isClickable = categoryId && categoryName;
       return (
-        <Cell
+        <View
           key={month}
-          width={monthAmountWidth}
-          plain
           style={{
-            textAlign: 'right',
+            flexDirection: 'row',
             borderRight: `1px solid ${theme.tableBorder}`,
-            ...(isClickable && {
-              cursor: 'pointer',
-            }),
           }}
-          onClick={
-            isClickable
-              ? (e: React.MouseEvent) => {
-                  e.stopPropagation();
-                  handleActualClick(categoryId, categoryName, month);
-                }
-              : undefined
-          }
         >
-          <View
+          <Cell width={monthAmountWidth} plain style={{ textAlign: 'right' }}>
+            <PrivacyFilter>{format(monthData.budgeted, 'financial')}</PrivacyFilter>
+          </Cell>
+          <Cell
+            width={monthAmountWidth}
+            plain
             style={{
-              ...(isClickable && {
-                ...styles.underlinedText,
-                color: theme.pageTextLink,
-              }),
+              textAlign: 'right',
+              ...(isClickable && { cursor: 'pointer' }),
             }}
+            onClick={
+              isClickable
+                ? (e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    handleActualClick(categoryId, categoryName, month);
+                  }
+                : undefined
+            }
           >
             <PrivacyFilter>{format(monthData.actual, 'financial')}</PrivacyFilter>
-          </View>
-        </Cell>
+          </Cell>
+        </View>
       );
     });
   };
@@ -173,32 +178,42 @@ export function BudgetVsActualTable({
   return (
     <View style={{ flex: 1 }}>
       {/* Header */}
-      <Row
+      <View
         style={{
+          flexDirection: 'row',
           fontWeight: 600,
           backgroundColor: theme.tableHeaderBackground,
           color: theme.tableHeaderText,
         }}
       >
-        <Cell width={categoryWidth} plain>
-          <Trans>Category</Trans>
-        </Cell>
-        {renderMonthlyHeaders()}
-        <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
-          {t('Budget')}
-        </Cell>
-        <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
-          {t('Actual')}
-        </Cell>
-        <Cell width={varianceWidth} plain style={{ textAlign: 'right' }}>
-          {t('Var')}
-        </Cell>
-        {!compact && (
-          <Cell width={percentWidth} plain style={{ textAlign: 'right' }}>
-            %
+        <View style={{ flexDirection: 'column', justifyContent: 'flex-end' }}>
+          <Cell width={categoryWidth} plain style={{ height: 'auto' }}>
+            <Trans>Category</Trans>
           </Cell>
-        )}
-      </Row>
+        </View>
+        {renderMonthlyHeaders()}
+        <View style={{ flexDirection: 'column' }}>
+          <Cell width={totalAmountWidth * 2 + varianceWidth + (compact ? 0 : percentWidth)} plain style={{ textAlign: 'center' }}>
+            <Trans>Total</Trans>
+          </Cell>
+          <View style={{ flexDirection: 'row' }}>
+            <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
+              {t('Bud')}
+            </Cell>
+            <Cell width={totalAmountWidth} plain style={{ textAlign: 'right' }}>
+              {t('Act')}
+            </Cell>
+            <Cell width={varianceWidth} plain style={{ textAlign: 'right' }}>
+              {t('Var')}
+            </Cell>
+            {!compact && (
+              <Cell width={percentWidth} plain style={{ textAlign: 'right' }}>
+                %
+              </Cell>
+            )}
+          </View>
+        </View>
+      </View>
 
       {/* Groups and Categories */}
       <View style={{ flex: 1, overflowY: 'auto' }}>
@@ -288,16 +303,9 @@ export function BudgetVsActualTable({
                       handleActualClick(category.id, category.name);
                     }}
                   >
-                    <View
-                      style={{
-                        ...styles.underlinedText,
-                        color: theme.pageTextLink,
-                      }}
-                    >
-                      <PrivacyFilter>
-                        {format(category.actual, 'financial')}
-                      </PrivacyFilter>
-                    </View>
+                    <PrivacyFilter>
+                      {format(category.actual, 'financial')}
+                    </PrivacyFilter>
                   </Cell>
                   <Cell
                     width={varianceWidth}

@@ -72,20 +72,22 @@ Report types:
 
 ### Table layout
 
-Single-row header:
-- Category | Jan | Feb | Mar | ... | Budget | Actual | Var | %
+Two-row header structure:
+- First row: Category | Month names (centered over Bud/Act pairs) | Total (centered over summary columns)
+- Second row: (empty) | Bud | Act (per month) | Bud | Act | Var | %
 
 Columns:
 - **Category**: Category name (grouped under category groups)
 - **Monthly columns** (up to 12 months based on date range):
-  - Shows actual spending only (not budgeted)
+  - Per month: Budgeted and Actual amounts
+  - Month name appears above the Bud/Act pair
   - Vertical separator lines between months for readability
-  - Clickable to drill down into transactions
-- **Summary columns**:
-  - Budget: Total budgeted amount across the date range
-  - Actual: Total actual spending (clickable to drill down)
-  - Var: Variance (budgeted - actual)
-  - %: Percentage variance (hidden in compact mode)
+  - Actual amounts are clickable to drill down into transactions
+- **Total section**:
+  - Total Budgeted (sum across all months)
+  - Total Actual (sum across all months, clickable to drill down)
+  - Variance (budgeted - actual)
+  - % (percentage variance, hidden in compact mode)
 
 Table features:
 - Collapsible category groups (click to expand/collapse)
