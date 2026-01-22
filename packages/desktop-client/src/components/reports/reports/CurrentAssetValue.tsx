@@ -11,14 +11,11 @@ import { Text } from '@actual-app/components/text';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
-import { send } from 'loot-core/platform/client/fetch';
 import * as monthUtils from 'loot-core/shared/months';
 import {
   type CurrentAssetValueWidget,
   type RuleConditionEntity,
 } from 'loot-core/types/models';
-
-import { EditablePageHeaderTitle } from '@desktop-client/components/EditablePageHeaderTitle';
 import { MobileBackButton } from '@desktop-client/components/mobile/MobileBackButton';
 import {
   MobilePageHeader,
@@ -39,8 +36,6 @@ import { useFormat } from '@desktop-client/hooks/useFormat';
 import { useNavigate } from '@desktop-client/hooks/useNavigate';
 import { useRuleConditionFilters } from '@desktop-client/hooks/useRuleConditionFilters';
 import { useWidget } from '@desktop-client/hooks/useWidget';
-import { addNotification } from '@desktop-client/notifications/notificationsSlice';
-import { useDispatch } from '@desktop-client/redux';
 
 export function CurrentAssetValue() {
   const params = useParams();
@@ -61,7 +56,6 @@ type CurrentAssetValueInternalProps = {
 };
 
 function CurrentAssetValueInternal({ widget }: CurrentAssetValueInternalProps) {
-  const dispatch = useDispatch();
   const { t } = useTranslation();
   const format = useFormat();
   const accounts = useAccounts();
@@ -114,45 +108,7 @@ function CurrentAssetValueInternal({ widget }: CurrentAssetValueInternalProps) {
   const navigate = useNavigate();
   const { isNarrowWidth } = useResponsive();
 
-  async function onSaveWidget() {
-    if (!widget) {
-      throw new Error('No widget that could be saved.');
-    }
-
-    await send('dashboard-update-widget', {
-      id: widget.id,
-      meta: {
-        ...(widget.meta ?? {}),
-        conditions,
-        conditionsOp,
-        date,
-      },
-    });
-    dispatch(
-      addNotification({
-        notification: {
-          type: 'message',
-          message: t('Dashboard widget successfully saved.'),
-        },
-      }),
-    );
-  }
-
-  const title = widget?.meta?.name || t('Current Asset Value');
-  const onSaveWidgetName = async (newName: string) => {
-    if (!widget) {
-      throw new Error('No widget that could be saved.');
-    }
-
-    const name = newName || t('Current Asset Value');
-    await send('dashboard-update-widget', {
-      id: widget.id,
-      meta: {
-        ...(widget.meta ?? {}),
-        name,
-      },
-    });
-  };
+  const title = t('Current Asset Value');
 
   const getBalanceColor = (balance: number) => {
     if (balance > 0) {
@@ -178,18 +134,7 @@ function CurrentAssetValueInternal({ widget }: CurrentAssetValueInternalProps) {
             }
           />
         ) : (
-          <PageHeader
-            title={
-              widget ? (
-                <EditablePageHeaderTitle
-                  title={title}
-                  onSave={onSaveWidgetName}
-                />
-              ) : (
-                title
-              )
-            }
-          />
+          <PageHeader title={title} />
         )
       }
       padding={0}
@@ -235,12 +180,6 @@ function CurrentAssetValueInternal({ widget }: CurrentAssetValueInternalProps) {
           currentConfig={{ date, conditions, conditionsOp }}
           onLoadReport={handleLoadSavedReport}
         />
-
-        {widget && (
-          <Button variant="primary" onPress={onSaveWidget}>
-            <Trans>Save widget</Trans>
-          </Button>
-        )}
       </View>
 
       <View

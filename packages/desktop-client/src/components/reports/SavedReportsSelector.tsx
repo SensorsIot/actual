@@ -74,7 +74,7 @@ export function SavedReportsSelector({
       {/* Saved Reports Dropdown */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
         <Text style={{ whiteSpace: 'nowrap', color: theme.pageTextLight }}>
-          <Trans>Saved:</Trans>
+          <Trans>Saved reports:</Trans>
         </Text>
         <Select
           value={selectedReportId || ''}
