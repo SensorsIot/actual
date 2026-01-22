@@ -129,6 +129,9 @@ When importing a file via `Account.tsx`:
 - Date/time is normalized to `YYYY-MM-DD`.
 - Payee is taken from the description column.
 - Transaction types are classified as `topup`, `swift_transfer`, `atm`, `exchange`, `card_payment`, or `expense`.
+- **Topup distinction**: Transactions marked as "Topup" are further classified:
+  - If description contains "migros" or "mifgros" → Transfer from Migros bank
+  - Otherwise → External payment (not a transfer, treated as normal transaction)
 
 ### Multi-currency handling
 
@@ -248,7 +251,8 @@ The parser (`parse-file.ts`) classifies transactions and sets `transfer_account`
 |-----------------|-------------------|-------------------|
 | ATM withdrawal | `art === 'atm'` or description contains "cash withdrawal" | `'Kasse'` |
 | Currency exchange | `art === 'exchange'` | `'Revolut {TARGET_CURRENCY}'` |
-| Top-up | `art === 'topup'` | Bank account (from settings) |
+| Top-up from Migros bank | `art === 'topup'` + description contains "migros" or "mifgros" | Bank account (from settings) |
+| Payment from external source | `art === 'topup'` + description does NOT contain "migros" | `null` (treated as normal transaction) |
 | SWIFT transfer | `art === 'transfer'` + "swift"/"sepa" in description | Bank account (from settings) |
 
 **Migros Bank** (`classifyMigrosTransaction`):
