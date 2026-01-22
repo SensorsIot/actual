@@ -7,6 +7,7 @@ import { CashFlow } from './reports/CashFlow';
 import { Crossover } from './reports/Crossover';
 import { CurrentAssetValue } from './reports/CurrentAssetValue';
 import { CustomReport } from './reports/CustomReport';
+import { YearlyBudgetPlanner } from './reports/YearlyBudgetPlanner';
 import { Formula } from './reports/Formula';
 import { NetWorth } from './reports/NetWorth';
 import { Spending } from './reports/Spending';
@@ -46,6 +47,7 @@ export function ReportRouter() {
       <Route path="/budget-vs-actual/:id" element={<BudgetVsActual />} />
       <Route path="/current-asset-value" element={<CurrentAssetValue />} />
       <Route path="/current-asset-value/:id" element={<CurrentAssetValue />} />
+      <Route path="/yearly-budget-planner" element={<YearlyBudgetPlanner />} />
     </Routes>
   );
 }

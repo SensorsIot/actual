@@ -7,6 +7,7 @@ This document specifies reporting behavior for Actual Budget. Each report has it
 Supported reports:
 - Budget vs Actual (implemented)
 - Current Asset Value (implemented)
+- Yearly Budget Planner (planned)
 
 Report types:
 - Dashboard widgets
@@ -128,6 +129,130 @@ Report types:
 - Date selection supports named snapshots (e.g., "Today", "2025") and stores the chosen date/name
 - Optional filters can be supported but are not required for the core flow
 
+## Report: Yearly Budget Planner
+
+### Purpose
+
+A planning tool that allows users to establish budget amounts for all categories (income and expense) across all 12 months of a selected year. The monthly budget values are the actual data stored and used by reports. Helper columns (Yearly Budget, Distribute) assist with planning but are not persisted. Shows a net gain/deficit summary.
+
+### User flow
+
+- Navigate directly via `/reports/yearly-budget-planner`
+- No dashboard widget (this is a planning tool, not a report widget)
+- Access via Reports sidebar
+
+### Year selection
+
+- Year selector with left/right navigation arrows
+- "Current Year" button to jump to current year
+- Default: current year on initial load
+- Can plan budgets for any year (past, current, or future)
+- **Immediate load**: When year changes, immediately load:
+  - Budgets stored for the selected year (Jan–Dec columns)
+  - "Last Year" column shows actuals from (selected year - 1)
+- Unsaved changes warning if navigating away with pending edits
+
+### Data inputs
+
+- All categories (both income and expense, grouped by category group)
+- Budget amounts from `zero_budgets` table for the selected year
+- Previous year's actual amounts per category (from transactions)
+- Respects show hidden categories setting
+
+### Table layout
+
+| Category | Last Year | Yearly Budget | Distribute | Jan | Feb | ... | Dec | Total |
+|----------|-----------|---------------|------------|-----|-----|-----|-----|-------|
+| **Income** |
+| Salary | 60,000 | [input] | [button] | [input] | [input] | ... | [input] | 60,000 |
+| **Expenses** |
+| Groceries | -12,000 | [input] | [button] | [input] | [input] | ... | [input] | -12,000 |
+| Rent | -18,000 | [input] | [button] | [input] | [input] | ... | [input] | -18,000 |
+| **Totals** |
+| Total Income | 60,000 | | | | | ... | | 60,000 |
+| Total Expenses | -30,000 | | | | | ... | | -30,000 |
+| **Net (Gain/Deficit)** | **30,000** | | | | | ... | | **30,000** |
+
+Column details:
+- **Category**: Category name (grouped under category groups)
+- **Last Year**: Read-only. Actual amounts from previous year (income positive, expenses negative)
+- **Yearly Budget**: Input field. Helper for distribution (not persisted)
+- **Distribute**: Button. Divides "Yearly Budget" evenly across 12 months
+- **Jan–Dec**: Input fields. The actual budget values that get saved
+- **Total**: Read-only. Sum of Jan–Dec. Updates immediately when any month changes
+
+Column widths:
+- Category: 180px
+- Last Year: 90px
+- Yearly Budget: 100px
+- Distribute: 80px
+- Month columns: 75px each
+- Total: 90px
+
+### Editing behavior
+
+- Click on any month cell or yearly budget cell to edit
+- Amount format: currency input (e.g., "150.00" or "150")
+- Total column updates immediately when any month value changes
+- Changes are held in memory until user clicks "Save"
+
+### Distribute button
+
+- Takes the value from "Yearly Budget" input
+- Divides by 12 (handles rounding: first months get the remainder)
+- Fills all 12 month columns with the distributed values
+- Example: 1000 → 84, 84, 84, 84, 83, 83, 83, 83, 83, 83, 83, 83
+
+### Save behavior
+
+- "Save" button in the header/toolbar
+- Saves all modified month values to the database
+- Uses `budget/budget-amount` API for each changed category/month
+- Shows success confirmation after save
+- Unsaved changes indicator (e.g., asterisk in title or warning on navigation)
+
+### Grouping and totals
+
+- Categories grouped under category groups
+- Income groups shown first, then expense groups
+- Group rows show:
+  - Last Year sum for the group
+  - Monthly sums for the group (read-only)
+  - Total sum for the group
+- Summary section at bottom:
+  - **Total Income**: Sum of all income categories
+  - **Total Expenses**: Sum of all expense categories
+  - **Net (Gain/Deficit)**: Total Income + Total Expenses (positive = gain, negative = deficit)
+- Net row uses color coding:
+  - Green for gain (positive)
+  - Red for deficit (negative)
+
+### Visual design
+
+- Collapsible category groups (click group row to expand/collapse)
+- All groups expanded by default
+- Group rows use bold styling with header background
+- Total row uses bold styling with header background and top border
+- Modified cells show visual indicator (e.g., background color) until saved
+
+### Hidden categories
+
+- Toggle button: "Show hidden categories" / "Hide hidden categories"
+- When hidden, categories marked as hidden are excluded
+- Hidden category groups are also excluded when all their categories are hidden
+
+### No widget
+
+- This is a planning/editing tool, not a dashboard widget
+- Full page only
+
+### Notes
+
+- All categories included (both income and expense)
+- "Yearly Budget" and "Distribute" are helper tools, not persisted data
+- Only the 12 month columns contain the actual budget data
+- Reports (Budget vs Actual) should compare actuals against budgets from the same year
+
 ## Appendix A - Data Models and Types
 
 ### Budget vs Actual
@@ -141,6 +266,11 @@ Report types:
 - `CurrentAssetValueGroupData`: id, name, balance, accounts
 - `CurrentAssetValueData`: groups, totalBalance, date
 - `CurrentAssetValueWidget`: name, conditions, conditionsOp, date
+
+### Yearly Budget Planner
+- `YearlyBudgetCategoryData`: id, name, hidden, isIncome, lastYearAmount, yearlyBudgetInput (helper, not persisted), monthBudgets (Record<month, amount>)
+- `YearlyBudgetGroupData`: id, name, hidden, isIncome, categories
+- `YearlyBudgetPlannerData`: groups, year, hasUnsavedChanges, totalIncome, totalExpenses, netAmount
 
 ## Appendix B - Query and Calculation Logic
 
@@ -203,6 +333,45 @@ q('transactions')
   .calculate({ $sum: '$amount' });
 ```
 
+Yearly Budget Planner queries:
+
+Current year budgets:
+```typescript
+q('zero_budgets')
+  .filter({
+    $and: [
+      { month: { $gte: currentYearStart } },  // e.g., 202601
+      { month: { $lte: currentYearEnd } },    // e.g., 202612
+    ],
+  })
+  .select(['category', 'month', 'amount']);
+```
+
+Last year amounts (per category, all transactions):
+```typescript
+q('transactions')
+  .filter({
+    $and: [
+      { date: { $gte: lastYearStart } },  // e.g., '2025-01-01'
+      { date: { $lte: lastYearEnd } },    // e.g., '2025-12-31'
+    ],
+  })
+  .groupBy([{ $id: '$category' }])
+  .select([
+    { category: { $id: '$category' } },
+    { amount: { $sum: '$amount' } },      // positive = income, negative = expense
+  ]);
+```
+
+Budget save API:
+```typescript
+send('budget/budget-amount', {
+  month: 'YYYY-MM',      // e.g., '2025-03'
+  category: categoryId,
+  amount: amountInCents, // integer
+});
+```
+
 ## Appendix C - Routing and Integration
 
 - Report routes
@@ -210,6 +379,7 @@ q('transactions')
   - `/reports/budget-vs-actual/:id`
   - `/reports/current-asset-value`
   - `/reports/current-asset-value/:id`
+  - `/reports/yearly-budget-planner`
 - Dashboard overview integration (widget menu item and card rendering)
 
 ## Appendix D - Implementation Files
@@ -229,6 +399,13 @@ q('transactions')
 | Widget card | `packages/desktop-client/src/components/reports/reports/CurrentAssetValueCard.tsx` |
 | Table component | `packages/desktop-client/src/components/reports/graphs/CurrentAssetValueTable.tsx` |
 | Spreadsheet/queries | `packages/desktop-client/src/components/reports/spreadsheets/current-asset-value-spreadsheet.ts` |
+
+### Yearly Budget Planner
+| Component | File Path |
+|-----------|-----------|
+| Full report page | `packages/desktop-client/src/components/reports/reports/YearlyBudgetPlanner.tsx` |
+| Table component | `packages/desktop-client/src/components/reports/graphs/YearlyBudgetPlannerTable.tsx` |
+| Spreadsheet/queries | `packages/desktop-client/src/components/reports/spreadsheets/yearly-budget-planner-spreadsheet.ts` |
 
 ### Shared Infrastructure
 | Component | File Path |
