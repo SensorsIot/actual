@@ -84,11 +84,23 @@ export function BudgetVsActualTable({
     });
   };
 
-  const getVarianceColor = (variance: number) => {
-    if (variance > 0) {
-      return theme.noticeTextLight; // Green - under budget
-    } else if (variance < 0) {
-      return theme.errorText; // Red - over budget
+  const getVarianceColor = (variance: number, isIncome: boolean) => {
+    // For expenses: positive variance = overspent (bad), negative = underspent (good)
+    // For income: positive variance = earned more (good), negative = earned less (bad)
+    if (isIncome) {
+      // Income: positive = good (green), negative = bad (red)
+      if (variance > 0) {
+        return theme.noticeTextLight; // Green
+      } else if (variance < 0) {
+        return theme.errorText; // Red
+      }
+    } else {
+      // Expense: positive = bad (red), negative = good (green)
+      if (variance > 0) {
+        return theme.errorText; // Red
+      } else if (variance < 0) {
+        return theme.noticeTextLight; // Green
+      }
     }
     return 'inherit';
   };
@@ -260,7 +272,7 @@ export function BudgetVsActualTable({
                 plain
                 style={{
                   textAlign: 'right',
-                  color: getVarianceColor(group.variance),
+                  color: getVarianceColor(group.variance, group.isIncome),
                 }}
               >
                 <PrivacyFilter>{format(group.variance, 'financial')}</PrivacyFilter>
@@ -271,7 +283,7 @@ export function BudgetVsActualTable({
                   plain
                   style={{
                     textAlign: 'right',
-                    color: getVarianceColor(group.variance),
+                    color: getVarianceColor(group.variance, group.isIncome),
                   }}
                 >
                   <PrivacyFilter>
@@ -315,7 +327,7 @@ export function BudgetVsActualTable({
                     plain
                     style={{
                       textAlign: 'right',
-                      color: getVarianceColor(category.variance),
+                      color: getVarianceColor(category.variance, group.isIncome),
                     }}
                   >
                     <PrivacyFilter>
@@ -328,7 +340,7 @@ export function BudgetVsActualTable({
                       plain
                       style={{
                         textAlign: 'right',
-                        color: getVarianceColor(category.variance),
+                        color: getVarianceColor(category.variance, group.isIncome),
                       }}
                     >
                       <PrivacyFilter>
@@ -366,7 +378,7 @@ export function BudgetVsActualTable({
             plain
             style={{
               textAlign: 'right',
-              color: getVarianceColor(data.totalVariance),
+              color: getVarianceColor(data.totalVariance, true),
             }}
           >
             <PrivacyFilter>{format(data.totalVariance, 'financial')}</PrivacyFilter>
@@ -377,7 +389,7 @@ export function BudgetVsActualTable({
               plain
               style={{
                 textAlign: 'right',
-                color: getVarianceColor(data.totalVariance),
+                color: getVarianceColor(data.totalVariance, true),
               }}
             >
               <PrivacyFilter>

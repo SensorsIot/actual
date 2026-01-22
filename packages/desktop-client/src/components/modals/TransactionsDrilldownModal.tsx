@@ -151,7 +151,7 @@ export function TransactionsDrilldownModal({
       onClose={onClose}
       containerProps={{
         style: {
-          width: 900,
+          width: 1000,
           maxWidth: '95vw',
         },
       }}
@@ -194,7 +194,7 @@ export function TransactionsDrilldownModal({
                   <Field width={200}>
                     <Trans>Payee</Trans>
                   </Field>
-                  <Field width={180}>
+                  <Field width={250}>
                     <Trans>Category</Trans>
                   </Field>
                   <Field width="flex">
@@ -220,7 +220,7 @@ export function TransactionsDrilldownModal({
                     }
                   </Cell>
                   <Cell
-                    width={180}
+                    width={250}
                     exposed
                     style={{
                       alignItems: 'flex-start',

@@ -27,6 +27,7 @@ export type BudgetVsActualCategoryData = {
 export type BudgetVsActualGroupData = {
   id: string;
   name: string;
+  isIncome: boolean;
   monthlyData: Record<string, MonthlyBudgetActual>; // month (YYYY-MM) -> data
   budgeted: number;
   actual: number;
@@ -281,6 +282,7 @@ export function createBudgetVsActualSpreadsheet({
         groups.push({
           id: group.id,
           name: group.name,
+          isIncome: isIncomeGroup,
           monthlyData: groupMonthlyData,
           budgeted: groupBudgeted,
           actual: groupActual,
