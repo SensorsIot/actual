@@ -487,10 +487,17 @@ function classifyRevolutTransaction(
   const artLower = art.toLowerCase();
   const descLower = beschreibung.toLowerCase();
 
-  // Topup: Bank -> Revolut (from "Konto Migros" or similar bank account)
+  // Topup: Check if it's from Migros bank or external source
   if (artLower === 'topup' || artLower === 'top-up') {
-    // "Top-up by *XXXX" or "Payment from NAME"
-    return { type: 'topup', transferAccount: null };
+    // Case 1: Top-up from Migros bank (transfer between accounts)
+    // Look for "Migros", "Konto Migros", "Migrosbank", etc.
+    if (descLower.includes('migros') || descLower.includes('mifgros')) {
+      return { type: 'topup', transferAccount: null };
+    }
+
+    // Case 2: Payment from external source (not a transfer, treat as normal transaction)
+    // Examples: "Payment from ANDREAS SPIESS", "Payment from ALIBABA.COM"
+    return { type: 'expense', transferAccount: null };
   }
 
   // SWIFT Transfer: Revolut -> Bank
