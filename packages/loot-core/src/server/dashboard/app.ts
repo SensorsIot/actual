@@ -38,6 +38,8 @@ function isWidgetType(type: string): type is Widget['type'] {
     'summary-card',
     'calendar-card',
     'formula-card',
+    'budget-vs-actual-card',
+    'current-asset-value-card',
     'custom-report',
   ].includes(type);
 }

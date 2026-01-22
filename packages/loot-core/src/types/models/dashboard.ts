@@ -108,6 +108,16 @@ export type BudgetVsActualWidget = AbstractWidget<
   } | null
 >;
 
+export type CurrentAssetValueWidget = AbstractWidget<
+  'current-asset-value-card',
+  {
+    name?: string;
+    conditions?: RuleConditionEntity[];
+    conditionsOp?: 'and' | 'or';
+    date?: string; // Specific date for the snapshot, defaults to today
+  } | null
+>;
+
 type SpecializedWidget =
   | NetWorthWidget
   | CashFlowWidget
@@ -117,7 +127,8 @@ type SpecializedWidget =
   | SummaryWidget
   | CalendarWidget
   | FormulaWidget
-  | BudgetVsActualWidget;
+  | BudgetVsActualWidget
+  | CurrentAssetValueWidget;
 export type Widget = SpecializedWidget | CustomReportWidget;
 export type NewWidget = Omit<Widget, 'id' | 'tombstone' | 'dashboard_page_id'>;
 

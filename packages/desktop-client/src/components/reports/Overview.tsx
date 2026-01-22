@@ -29,6 +29,7 @@ import { DashboardSelector } from './DashboardSelector';
 import { LoadingIndicator } from './LoadingIndicator';
 import { BudgetVsActualCard } from './reports/BudgetVsActualCard';
 import { CalendarCard } from './reports/CalendarCard';
+import { CurrentAssetValueCard } from './reports/CurrentAssetValueCard';
 import { CashFlowCard } from './reports/CashFlowCard';
 import { CrossoverCard } from './reports/CrossoverCard';
 import { CustomReportListCards } from './reports/CustomReportListCards';
@@ -515,6 +516,10 @@ export function Overview({ dashboard }: OverviewProps) {
                               text: t('Budget vs Actual'),
                             },
                             {
+                              name: 'current-asset-value-card' as const,
+                              text: t('Current Asset Value'),
+                            },
+                            {
                               name: 'markdown-card' as const,
                               text: t('Text widget'),
                             },
@@ -710,6 +715,17 @@ export function Overview({ dashboard }: OverviewProps) {
                     />
                   ) : item.type === 'budget-vs-actual-card' ? (
                     <BudgetVsActualCard
+                      widgetId={item.i}
+                      isEditing={isEditing}
+                      meta={item.meta}
+                      onMetaChange={newMeta => onMetaChange(item, newMeta)}
+                      onRemove={() => onRemoveWidget(item.i)}
+                      onCopy={targetDashboardId =>
+                        onCopyWidget(item.i, targetDashboardId)
+                      }
+                    />
+                  ) : item.type === 'current-asset-value-card' ? (
+                    <CurrentAssetValueCard
                       widgetId={item.i}
                       isEditing={isEditing}
                       meta={item.meta}
