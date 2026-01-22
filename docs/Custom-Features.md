@@ -31,8 +31,13 @@ All values displayed as positive for easy reading:
 - Expense actuals: negated for display (−300 → +300)
 
 **Variance:** Actual - Budget
-- Negative = unfavorable (earned less than expected OR overspent)
-- Positive = favorable (earned more OR underspent)
+- Expense categories:
+  - Positive = overspent (red)
+  - Negative = underspent (green)
+- Income categories:
+  - Positive = earned more (green)
+  - Negative = earned less (red)
+- Total: Positive = surplus (green), Negative = deficit (red)
 
 **Totals:** Income - Expenses = Net (surplus/deficit)
 

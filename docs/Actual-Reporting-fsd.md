@@ -78,8 +78,12 @@ Report types:
 
 **Variance calculation:**
 - Formula: Actual - Budget (uniform for all categories)
-- Negative = unfavorable (earned less OR overspent)
-- Positive = favorable (earned more OR underspent)
+- Expense categories:
+  - Positive variance = overspent (bad)
+  - Negative variance = underspent (good)
+- Income categories:
+  - Positive variance = earned more than expected (good)
+  - Negative variance = earned less than expected (bad)
 
 **Totals:**
 - Income values add to total
@@ -87,8 +91,15 @@ Report types:
 - Net = Income - Expenses
 
 **Color rules:**
-- Positive variance: `theme.noticeTextLight` (green = favorable)
-- Negative variance: `theme.errorText` (red = unfavorable)
+- Expense categories:
+  - Positive variance: `theme.errorText` (red = overspent)
+  - Negative variance: `theme.noticeTextLight` (green = underspent)
+- Income categories:
+  - Positive variance: `theme.noticeTextLight` (green = earned more)
+  - Negative variance: `theme.errorText` (red = earned less)
+- Total row:
+  - Positive variance: `theme.noticeTextLight` (green = surplus)
+  - Negative variance: `theme.errorText` (red = deficit)
 
 ### Table layout
 
