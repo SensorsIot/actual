@@ -418,6 +418,7 @@ send('budget/budget-amount', {
 | Saved reports selector | `packages/desktop-client/src/components/reports/SavedReportsSelector.tsx` |
 | Widget registry | `packages/desktop-client/src/components/reports/widgetRegistry.tsx` |
 | Custom widget registrations | `packages/desktop-client/src/components/reports/customWidgetRegistrations.ts` |
+| Sidebar route overrides | `packages/desktop-client/src/components/sidebar/customSidebarConfig.ts` |
 
 ## Appendix E - Widget Registry Pattern
 
@@ -450,3 +451,40 @@ When upgrading Actual Budget:
 - **Safe**: All files in "Custom Widget Registrations" section
 - **Check**: `dashboard.ts`, `app.ts`, `ReportRouter.tsx` for merge conflicts
 - **Minimal risk**: `Overview.tsx` only has 3 lines of custom code (import + registry calls)
+
+## Appendix F - Sidebar Configuration Pattern
+
+Custom sidebar navigation uses a configuration pattern to minimize changes to core files.
+
+### How it works
+
+1. `customSidebarConfig.ts` defines route overrides for sidebar items
+2. `PrimaryButtons.tsx` imports and uses `getSidebarRoute()` function
+3. To change a sidebar link, modify only `customSidebarConfig.ts`
+
+### Configuration file
+
+```typescript
+// customSidebarConfig.ts
+export const customRouteOverrides: Record<string, string> = {
+  budget: '/reports/yearly-budget-planner',
+};
+
+export function getSidebarRoute(itemId: string, defaultRoute: string): string {
+  return customRouteOverrides[itemId] ?? defaultRoute;
+}
+```
+
+### Usage in PrimaryButtons.tsx
+
+```typescript
+import { getSidebarRoute } from './customSidebarConfig';
+// ...
+<Item title={t('Budget')} Icon={SvgWallet} to={getSidebarRoute('budget', '/budget')} />
+```
+
+### Upgrade safety
+
+When upgrading Actual Budget:
+- **Safe**: `customSidebarConfig.ts` (your custom file)
+- **Check**: `PrimaryButtons.tsx` for changes to the import line or Item usage

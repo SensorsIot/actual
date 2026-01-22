@@ -16,6 +16,7 @@ import {
 import { SvgCalendar3 } from '@actual-app/components/icons/v2';
 import { View } from '@actual-app/components/view';
 
+import { getSidebarRoute } from './customSidebarConfig';
 import { Item } from './Item';
 import { SecondaryItem } from './SecondaryItem';
 
@@ -48,7 +49,7 @@ export function PrimaryButtons() {
 
   return (
     <View style={{ flexShrink: 0 }}>
-      <Item title={t('Budget')} Icon={SvgWallet} to="/reports/yearly-budget-planner" />
+      <Item title={t('Budget')} Icon={SvgWallet} to={getSidebarRoute('budget', '/budget')} />
       <Item title={t('Reports')} Icon={SvgReports} to="/reports" />
       <Item title={t('Schedules')} Icon={SvgCalendar3} to="/schedules" />
       <Item
