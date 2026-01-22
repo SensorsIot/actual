@@ -48,7 +48,7 @@ export function PrimaryButtons() {
 
   return (
     <View style={{ flexShrink: 0 }}>
-      <Item title={t('Budget')} Icon={SvgWallet} to="/budget" />
+      <Item title={t('Budget')} Icon={SvgWallet} to="/reports/yearly-budget-planner" />
       <Item title={t('Reports')} Icon={SvgReports} to="/reports" />
       <Item title={t('Schedules')} Icon={SvgCalendar3} to="/schedules" />
       <Item
