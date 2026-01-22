@@ -100,6 +100,7 @@ export function TransactionsDrilldownModal({
         modal: {
           name: 'category-autocomplete',
           options: {
+            title: t('Change Category'),
             onSelect: async (newCategoryId: string) => {
               // Update the transaction's category
               await send('transaction-update', {
@@ -123,7 +124,16 @@ export function TransactionsDrilldownModal({
   const total = transactions.reduce((sum, t) => sum + t.amount, 0);
 
   return (
-    <Modal name="transactions-drilldown" onClose={onClose}>
+    <Modal
+      name="transactions-drilldown"
+      onClose={onClose}
+      containerProps={{
+        style: {
+          width: 900,
+          maxWidth: '95vw',
+        },
+      }}
+    >
       <ModalHeader
         title={title}
         rightContent={<ModalCloseButton onPress={onClose} />}
@@ -156,29 +166,29 @@ export function TransactionsDrilldownModal({
               items={transactions}
               headers={
                 <>
-                  <Field width={90}>
+                  <Field width={100}>
                     <Trans>Date</Trans>
                   </Field>
-                  <Field width="flex">
+                  <Field width={200}>
                     <Trans>Payee</Trans>
                   </Field>
-                  <Field width="flex">
+                  <Field width={180}>
                     <Trans>Category</Trans>
                   </Field>
                   <Field width="flex">
                     <Trans>Notes</Trans>
                   </Field>
-                  <Field width={90} style={{ textAlign: 'right' }}>
+                  <Field width={100} style={{ textAlign: 'right' }}>
                     <Trans>Amount</Trans>
                   </Field>
                 </>
               }
               renderItem={({ item: transaction }) => (
                 <Row key={transaction.id} style={{ color: theme.tableText }}>
-                  <Field width={90}>
+                  <Field width={100}>
                     {monthUtils.format(transaction.date, dateFormat)}
                   </Field>
-                  <Cell width="flex" exposed style={{ alignItems: 'flex-start' }}>
+                  <Cell width={200} exposed style={{ alignItems: 'flex-start' }}>
                     {() =>
                       transaction.payee ? (
                         <DisplayId type="payees" id={transaction.payee} />
@@ -188,7 +198,7 @@ export function TransactionsDrilldownModal({
                     }
                   </Cell>
                   <Cell
-                    width="flex"
+                    width={180}
                     exposed
                     style={{
                       alignItems: 'flex-start',
@@ -201,7 +211,7 @@ export function TransactionsDrilldownModal({
                         style={{
                           padding: '2px 6px',
                           borderRadius: 4,
-                          backgroundColor: theme.tableRowBackgroundHover,
+                          backgroundColor: theme.tableBorderHover,
                         }}
                       >
                         <CategoryDisplay id={transaction.category} />
@@ -212,7 +222,7 @@ export function TransactionsDrilldownModal({
                     {transaction.notes || ''}
                   </Field>
                   <Field
-                    width={90}
+                    width={100}
                     style={{ textAlign: 'right', ...styles.tnum }}
                   >
                     <PrivacyFilter>
@@ -239,7 +249,7 @@ export function TransactionsDrilldownModal({
             <View style={{ flex: 1 }}>
               <Trans>Total ({transactions.length} transactions)</Trans>
             </View>
-            <View style={{ width: 90, textAlign: 'right', ...styles.tnum }}>
+            <View style={{ width: 100, textAlign: 'right', ...styles.tnum }}>
               <PrivacyFilter>{format(total, 'financial')}</PrivacyFilter>
             </View>
           </View>
