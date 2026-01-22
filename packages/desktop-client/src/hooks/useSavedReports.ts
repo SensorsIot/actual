@@ -1,17 +1,27 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { type RuleConditionEntity } from 'loot-core/types/models';
+import { type RuleConditionEntity, type TimeFrame } from 'loot-core/types/models';
+
+// Generic config that supports all report types
+export type SavedReportConfig = {
+  // Current Asset Value
+  date?: string;
+  // Budget vs Actual
+  start?: string;
+  end?: string;
+  mode?: TimeFrame['mode'];
+  showHiddenCategories?: boolean;
+  // Shared
+  conditions?: RuleConditionEntity[];
+  conditionsOp?: 'and' | 'or';
+};
 
 export type SavedReport = {
   id: string;
   name: string;
   createdAt: string;
   updatedAt: string;
-  config: {
-    date?: string;
-    conditions?: RuleConditionEntity[];
-    conditionsOp?: 'and' | 'or';
-  };
+  config: SavedReportConfig;
 };
 
 type SavedReportsMap = Record<string, SavedReport[]>;

@@ -18,8 +18,6 @@ import {
   type RuleConditionEntity,
   type TimeFrame,
 } from 'loot-core/types/models';
-
-import { EditablePageHeaderTitle } from '@desktop-client/components/EditablePageHeaderTitle';
 import { MobileBackButton } from '@desktop-client/components/mobile/MobileBackButton';
 import {
   MobilePageHeader,
@@ -30,6 +28,7 @@ import { PrivacyFilter } from '@desktop-client/components/PrivacyFilter';
 import { BudgetVsActualTable } from '@desktop-client/components/reports/graphs/BudgetVsActualTable';
 import { Header } from '@desktop-client/components/reports/Header';
 import { LoadingIndicator } from '@desktop-client/components/reports/LoadingIndicator';
+import { SavedReportsSelector } from '@desktop-client/components/reports/SavedReportsSelector';
 import { calculateTimeRange } from '@desktop-client/components/reports/reportRanges';
 import {
   createBudgetVsActualSpreadsheet,
@@ -43,8 +42,7 @@ import { useNavigate } from '@desktop-client/hooks/useNavigate';
 import { useRuleConditionFilters } from '@desktop-client/hooks/useRuleConditionFilters';
 import { useSyncedPref } from '@desktop-client/hooks/useSyncedPref';
 import { useWidget } from '@desktop-client/hooks/useWidget';
-import { addNotification } from '@desktop-client/notifications/notificationsSlice';
-import { useDispatch } from '@desktop-client/redux';
+import { type SavedReportConfig } from '@desktop-client/hooks/useSavedReports';
 
 export const defaultTimeFrame = {
   start: monthUtils.currentMonth(),
@@ -72,7 +70,6 @@ type BudgetVsActualInternalProps = {
 
 function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
   const locale = useLocale();
-  const dispatch = useDispatch();
   const { t } = useTranslation();
   const format = useFormat();
   const categories = useCategories();
@@ -185,49 +182,22 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
   const navigate = useNavigate();
   const { isNarrowWidth } = useResponsive();
 
-  async function onSaveWidget() {
-    if (!widget) {
-      throw new Error('No widget that could be saved.');
+  const title = t('Budget vs Actual');
+
+  // Handler for loading a saved report
+  const handleLoadSavedReport = (config: SavedReportConfig) => {
+    if (config.start) {
+      setStart(config.start);
     }
-
-    await send('dashboard-update-widget', {
-      id: widget.id,
-      meta: {
-        ...(widget.meta ?? {}),
-        conditions,
-        conditionsOp,
-        timeFrame: {
-          start,
-          end,
-          mode,
-        },
-        showHiddenCategories,
-      },
-    });
-    dispatch(
-      addNotification({
-        notification: {
-          type: 'message',
-          message: t('Dashboard widget successfully saved.'),
-        },
-      }),
-    );
-  }
-
-  const title = widget?.meta?.name || t('Budget vs Actual');
-  const onSaveWidgetName = async (newName: string) => {
-    if (!widget) {
-      throw new Error('No widget that could be saved.');
+    if (config.end) {
+      setEnd(config.end);
     }
-
-    const name = newName || t('Budget vs Actual');
-    await send('dashboard-update-widget', {
-      id: widget.id,
-      meta: {
-        ...(widget.meta ?? {}),
-        name,
-      },
-    });
+    if (config.mode) {
+      setMode(config.mode);
+    }
+    if (config.showHiddenCategories !== undefined) {
+      setShowHiddenCategories(config.showHiddenCategories);
+    }
   };
 
   if (!allMonths || !data) {
@@ -245,18 +215,7 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
             }
           />
         ) : (
-          <PageHeader
-            title={
-              widget ? (
-                <EditablePageHeaderTitle
-                  title={title}
-                  onSave={onSaveWidgetName}
-                />
-              ) : (
-                title
-              )
-            }
-          />
+          <PageHeader title={title} />
         )
       }
       padding={0}
@@ -277,7 +236,7 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
         conditionsOp={conditionsOp}
         onConditionsOpChange={onConditionsOpChange}
       >
-        <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
           <Button
             onPress={() => setShowHiddenCategories(state => !state)}
             variant={showHiddenCategories ? 'primary' : 'normal'}
@@ -287,11 +246,28 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
               : t('Show hidden categories')}
           </Button>
 
-          {widget && (
-            <Button variant="primary" onPress={onSaveWidget}>
-              <Trans>Save widget</Trans>
-            </Button>
-          )}
+          <View
+            style={{
+              height: 'auto',
+              borderLeft: `1.5px solid ${theme.pillBorderDark}`,
+              borderRadius: 0.75,
+              marginLeft: 5,
+              marginRight: 5,
+            }}
+          />
+
+          <SavedReportsSelector
+            reportType="budget-vs-actual"
+            currentConfig={{
+              start,
+              end,
+              mode,
+              showHiddenCategories,
+              conditions,
+              conditionsOp,
+            }}
+            onLoadReport={handleLoadSavedReport}
+          />
         </View>
       </Header>
 

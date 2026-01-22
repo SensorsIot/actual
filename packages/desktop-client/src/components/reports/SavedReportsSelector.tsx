@@ -14,12 +14,13 @@ import { View } from '@actual-app/components/view';
 import {
   useSavedReports,
   type SavedReport,
+  type SavedReportConfig,
 } from '@desktop-client/hooks/useSavedReports';
 
 type SavedReportsSelectorProps = {
   reportType: string;
-  currentConfig: SavedReport['config'];
-  onLoadReport: (config: SavedReport['config']) => void;
+  currentConfig: SavedReportConfig;
+  onLoadReport: (config: SavedReportConfig) => void;
   onSaved?: (report: SavedReport) => void;
 };
 
