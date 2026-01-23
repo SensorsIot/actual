@@ -80,10 +80,14 @@ export function Transaction({
 
   // Look up category name from ID for existing transactions
   const getCategoryDisplayName = useCallback((categoryId: string | undefined) => {
-    if (!categoryId) return null;
+    if (!categoryId) {
+      console.log('[Transaction] getCategoryDisplayName: no categoryId provided');
+      return null;
+    }
 
     // First check if it's already a name (format "Group:Category")
     if (categoryId.includes(':')) {
+      console.log('[Transaction] getCategoryDisplayName: already in Group:Category format:', categoryId);
       return categoryId;
     }
 
@@ -94,11 +98,15 @@ export function Transaction({
         g.categories?.some(cat => cat.id === categoryId)
       );
       if (group) {
-        return `${group.name}:${category.name}`;
+        const displayName = `${group.name}:${category.name}`;
+        console.log('[Transaction] getCategoryDisplayName: found category by ID:', { categoryId, displayName });
+        return displayName;
       }
+      console.log('[Transaction] getCategoryDisplayName: found category but no group:', { categoryId, categoryName: category.name });
       return category.name;
     }
 
+    console.log('[Transaction] getCategoryDisplayName: category not found for ID:', categoryId);
     return null;
   }, [categories, categoryGroups]);
 

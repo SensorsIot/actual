@@ -223,6 +223,14 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
       if (matchInfo) {
         // Extract category from existing transaction for display
         const existingTrans = matchInfo.existing as { category?: string } | undefined;
+        const extractedCategory = existingTrans?.category || trans.category;
+        console.log('[Revolut Import] Existing transaction:', {
+          payee: trans.payee_name,
+          trx_id: trans.trx_id,
+          existingCategory: existingTrans?.category,
+          transCategory: trans.category,
+          finalCategory: extractedCategory,
+        });
         return {
           ...trans,
           existing: !!matchInfo.existing,
@@ -230,7 +238,7 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
           selected: !matchInfo.ignored,
           tombstone: matchInfo.tombstone || false,
           // Preserve existing transaction's category for display
-          category: existingTrans?.category || trans.category,
+          category: extractedCategory,
         };
       }
       return trans;
