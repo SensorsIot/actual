@@ -603,7 +603,15 @@ export async function reconcileTransactions(
         existing.amount = integerToAmount(existing.amount);
         updatedPreview.push({ transaction: trans, existing });
       } else {
-        updatedPreview.push({ transaction: trans, ignored: true });
+        // Include existing object even when there are no changes
+        // so the frontend can display existing category, notes, etc.
+        if (!existingPayeeMap.has(existing.payee)) {
+          const payee = await db.getPayee(existing.payee);
+          existingPayeeMap.set(existing.payee, payee?.name);
+        }
+        existing.payee_name = existingPayeeMap.get(existing.payee);
+        existing.amount = integerToAmount(existing.amount);
+        updatedPreview.push({ transaction: trans, existing, ignored: true });
       }
 
       if (existing.is_parent && existing.cleared !== updates.cleared) {

@@ -80,14 +80,10 @@ export function Transaction({
 
   // Look up category name from ID for existing transactions
   const getCategoryDisplayName = useCallback((categoryId: string | undefined) => {
-    if (!categoryId) {
-      console.log('[Transaction] getCategoryDisplayName: no categoryId provided');
-      return null;
-    }
+    if (!categoryId) return null;
 
     // First check if it's already a name (format "Group:Category")
     if (categoryId.includes(':')) {
-      console.log('[Transaction] getCategoryDisplayName: already in Group:Category format:', categoryId);
       return categoryId;
     }
 
@@ -98,15 +94,11 @@ export function Transaction({
         g.categories?.some(cat => cat.id === categoryId)
       );
       if (group) {
-        const displayName = `${group.name}:${category.name}`;
-        console.log('[Transaction] getCategoryDisplayName: found category by ID:', { categoryId, displayName });
-        return displayName;
+        return `${group.name}:${category.name}`;
       }
-      console.log('[Transaction] getCategoryDisplayName: found category but no group:', { categoryId, categoryName: category.name });
       return category.name;
     }
 
-    console.log('[Transaction] getCategoryDisplayName: category not found for ID:', categoryId);
     return null;
   }, [categories, categoryGroups]);
 
@@ -317,48 +309,33 @@ export function Transaction({
       >
         {/* Show dropdown for ALL Swiss bank import transactions (new and existing) */}
         {isSwissBankImport && !transaction.isMatchedTransaction ? (
-          (() => {
-            const displayValue = selectedCategory || getCategoryDisplayName(transaction.category) || '';
-            console.log('[Transaction] Rendering category dropdown:', {
-              trx_id: transaction.trx_id,
-              payee: transaction.payee_name,
-              selectedCategory,
-              transactionCategory: transaction.category,
-              displayedCategory: getCategoryDisplayName(transaction.category),
-              finalValue: displayValue,
-              existing: transaction.existing,
-            });
-            return (
-              <Select
-                value={displayValue}
-                onChange={(value: string) => {
-                  onCategoryChange?.(transaction.trx_id, value || null);
-                }}
-
-                options={[
-                  ['', t('Select category...')],
-                  ...categoryGroups
-                    .flatMap(group =>
-                      (group.categories || []).map(cat => {
-                        const fullName = `${group.name}:${cat.name}`;
-                        return [fullName, fullName] as [string, string];
-                      })
-                    )
-                    .sort((a, b) => a[0].localeCompare(b[0])),
-                ]}
-                style={{
-                  fontSize: '0.85em',
-                  padding: '4px 6px',
-                  minHeight: 32,
-                  width: '100%',
-                  backgroundColor: (!selectedCategory && !getCategoryDisplayName(transaction.category)) ? theme.errorBackground : theme.tableBackground,
-                  border: '1px solid ' + ((!selectedCategory && !getCategoryDisplayName(transaction.category)) ? theme.errorBorder : theme.tableBorder),
-                  borderRadius: 4,
-                  color: (!selectedCategory && !getCategoryDisplayName(transaction.category)) ? theme.errorText : undefined,
-                }}
-              />
-            );
-          })()
+          <Select
+            value={selectedCategory || getCategoryDisplayName(transaction.category) || ''}
+            onChange={(value: string) => {
+              onCategoryChange?.(transaction.trx_id, value || null);
+            }}
+            options={[
+              ['', t('Select category...')],
+              ...categoryGroups
+                .flatMap(group =>
+                  (group.categories || []).map(cat => {
+                    const fullName = `${group.name}:${cat.name}`;
+                    return [fullName, fullName] as [string, string];
+                  })
+                )
+                .sort((a, b) => a[0].localeCompare(b[0])),
+            ]}
+            style={{
+              fontSize: '0.85em',
+              padding: '4px 6px',
+              minHeight: 32,
+              width: '100%',
+              backgroundColor: (!selectedCategory && !getCategoryDisplayName(transaction.category)) ? theme.errorBackground : theme.tableBackground,
+              border: '1px solid ' + ((!selectedCategory && !getCategoryDisplayName(transaction.category)) ? theme.errorBorder : theme.tableBorder),
+              borderRadius: 4,
+              color: (!selectedCategory && !getCategoryDisplayName(transaction.category)) ? theme.errorText : undefined,
+            }}
+          />
         ) : (
           // Show text for non-Swiss imports only
           selectedCategory || getCategoryDisplayName(transaction.category)
