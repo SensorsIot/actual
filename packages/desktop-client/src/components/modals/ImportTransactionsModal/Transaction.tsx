@@ -1,4 +1,4 @@
-import React, { useMemo, type ComponentProps } from 'react';
+import React, { useMemo, useCallback, type ComponentProps } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Select } from '@actual-app/components/select';
@@ -77,6 +77,31 @@ export function Transaction({
   const { t } = useTranslation();
 
   const categoryList = categories.map(category => category.name);
+
+  // Look up category name from ID for existing transactions
+  const getCategoryDisplayName = useCallback((categoryId: string | undefined) => {
+    if (!categoryId) return null;
+
+    // First check if it's already a name (format "Group:Category")
+    if (categoryId.includes(':')) {
+      return categoryId;
+    }
+
+    // Look up by ID
+    const category = categories.find(c => c.id === categoryId);
+    if (category) {
+      const group = categoryGroups.find(g =>
+        g.categories?.some(cat => cat.id === categoryId)
+      );
+      if (group) {
+        return `${group.name}:${category.name}`;
+      }
+      return category.name;
+    }
+
+    return null;
+  }, [categories, categoryGroups]);
+
   const transaction = useMemo(
     () =>
       fieldMappings && !rawTransaction.isMatchedTransaction
@@ -279,15 +304,13 @@ export function Transaction({
       <Field
         width={200}
         title={
-          selectedCategory || (transaction.category && categoryList.includes(transaction.category)
-            ? transaction.category
-            : undefined)
+          selectedCategory || getCategoryDisplayName(transaction.category) || undefined
         }
       >
         {/* Show dropdown for ALL Swiss bank import transactions (new and existing) */}
         {isSwissBankImport && !transaction.isMatchedTransaction ? (
           <Select
-            value={selectedCategory || ''}
+            value={selectedCategory || getCategoryDisplayName(transaction.category) || ''}
             onChange={(value: string) => {
               onCategoryChange?.(transaction.trx_id, value || null);
             }}
@@ -307,18 +330,15 @@ export function Transaction({
               padding: '4px 6px',
               minHeight: 32,
               width: '100%',
-              backgroundColor: !selectedCategory ? theme.errorBackground : theme.tableBackground,
-              border: '1px solid ' + (!selectedCategory ? theme.errorBorder : theme.tableBorder),
+              backgroundColor: (!selectedCategory && !getCategoryDisplayName(transaction.category)) ? theme.errorBackground : theme.tableBackground,
+              border: '1px solid ' + ((!selectedCategory && !getCategoryDisplayName(transaction.category)) ? theme.errorBorder : theme.tableBorder),
               borderRadius: 4,
-              color: !selectedCategory ? theme.errorText : undefined,
+              color: (!selectedCategory && !getCategoryDisplayName(transaction.category)) ? theme.errorText : undefined,
             }}
           />
         ) : (
           // Show text for non-Swiss imports only
-          selectedCategory ||
-          (transaction.category &&
-            categoryList.includes(transaction.category) &&
-            transaction.category)
+          selectedCategory || getCategoryDisplayName(transaction.category)
         )}
       </Field>
       {showStatus && !transaction.isMatchedTransaction && (

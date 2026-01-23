@@ -221,12 +221,16 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
     const transactionPreview = transactionsToPreview.map(trans => {
       const matchInfo = matchedUpdateMap[trans.trx_id];
       if (matchInfo) {
+        // Extract category from existing transaction for display
+        const existingTrans = matchInfo.existing as { category?: string } | undefined;
         return {
           ...trans,
           existing: !!matchInfo.existing,
           ignored: matchInfo.ignored || false,
           selected: !matchInfo.ignored,
           tombstone: matchInfo.tombstone || false,
+          // Preserve existing transaction's category for display
+          category: existingTrans?.category || trans.category,
         };
       }
       return trans;
@@ -271,6 +275,37 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
       setError({
         parsed: true,
         message: t('Please enter the "Current Revolut Total (CHF)" before importing.'),
+      });
+      return;
+    }
+
+    // Validate: Check that all non-transfer transactions have categories
+    const transferTypes = ['topup', 'swift_transfer', 'atm', 'exchange'];
+    const transactionsWithoutCategories = transactions.filter(trans => {
+      // Skip unselected and existing transactions
+      if (trans.isMatchedTransaction || !trans.selected) {
+        return false;
+      }
+
+      // Skip transfers (they don't need categories)
+      const transactionType = (trans as { transaction_type?: string }).transaction_type;
+      if (transactionType && transferTypes.includes(transactionType)) {
+        return false;
+      }
+
+      // Check if transaction has a category assigned
+      const catInfo = transactionCategories.get(trans.trx_id);
+      const hasCategory = catInfo?.selectedCategory || trans.category;
+
+      return !hasCategory;
+    });
+
+    if (transactionsWithoutCategories.length > 0) {
+      setError({
+        parsed: true,
+        message: t('Please assign categories to all transactions before importing. {{count}} transaction(s) are missing categories.', {
+          count: transactionsWithoutCategories.length,
+        }),
       });
       return;
     }
