@@ -127,6 +127,14 @@ export function useSwissBankImport(): UseSwissBankImportResult {
       console.log('[SwissBankImport] Matched categories:', withMatches.map(([id, info]) => `${info.payee} -> ${info.selectedCategory}`));
     }
 
+    // Debug: log full map contents
+    console.log('[SwissBankImport] Full category map:', Array.from(categoryMap.entries()).map(([id, info]) => ({
+      id,
+      payee: info.payee,
+      selectedCategory: info.selectedCategory,
+      hasMatch: info.hasMatch,
+    })));
+
     setTransactionCategories(categoryMap);
   }, []);
 
