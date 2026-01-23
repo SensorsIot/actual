@@ -428,20 +428,50 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
       return;
     }
 
-    // Save the category to settings
-    const newSettings = { ...importSettings, revolut_differenz_category: selectedDifferenzCategory };
-    await send('swiss-bank-save-import-settings', { settings: newSettings });
-    setImportSettings(newSettings);
+    try {
+      setLoadingState('importing');
 
-    // Book the correction
-    await send('revolut-balance-check', {
-      expectedTotalCHF: pendingBalanceCorrection.expectedBalance,
-    });
+      // Save the category to settings
+      const newSettings = { ...importSettings, revolut_differenz_category: selectedDifferenzCategory };
+      await send('swiss-bank-save-import-settings', { settings: newSettings });
+      setImportSettings(newSettings);
 
-    setShowCategoryPrompt(false);
-    close();
-    if (onImported) {
-      onImported(true);
+      // Book the correction
+      const balanceResult = await send('revolut-balance-check', {
+        expectedTotalCHF: pendingBalanceCorrection.expectedBalance,
+      });
+
+      if (!balanceResult.success) {
+        setError({
+          parsed: true,
+          message: balanceResult.error || t('Failed to book balance correction'),
+        });
+        setLoadingState(null);
+        return;
+      }
+
+      if (!balanceResult.correctionBooked) {
+        setError({
+          parsed: true,
+          message: t('Balance correction was not booked. Please check the logs.'),
+        });
+        setLoadingState(null);
+        return;
+      }
+
+      setShowCategoryPrompt(false);
+      setLoadingState(null);
+      close();
+      if (onImported) {
+        onImported(true);
+      }
+    } catch (err) {
+      console.error('[Revolut Balance Correction] Error:', err);
+      setError({
+        parsed: true,
+        message: err instanceof Error ? err.message : t('Failed to book balance correction'),
+      });
+      setLoadingState(null);
     }
   }
 

@@ -1550,6 +1550,8 @@ async function checkRevolutBalanceAndCorrect({
     const importSettings = await getImportSettings();
     const categoryName = importSettings.revolut_differenz_category || 'Hobby';
 
+    logger.info(`[Revolut Balance Check] Difference: ${(result.difference / 100).toFixed(2)} CHF, Category: "${categoryName}"`);
+
     // Find category by name (search in format "Group:Category" or just "Category")
     let categoryId: string | null = null;
 
@@ -1580,6 +1582,8 @@ async function checkRevolutBalanceAndCorrect({
 
     if (!categoryId) {
       logger.warn(`Category "${categoryName}" not found for Revolut Differenz, booking without category`);
+    } else {
+      logger.info(`Category "${categoryName}" found with ID: ${categoryId}`);
     }
 
     // Find or create "Revolut Differenz" payee
@@ -1601,6 +1605,8 @@ async function checkRevolutBalanceAndCorrect({
     const txnId = uuidv4();
     const today = monthUtils.currentDay();
 
+    logger.info(`[Revolut Balance Check] Creating correction transaction: ${(result.difference / 100).toFixed(2)} CHF on ${today}`);
+
     await db.insertTransaction({
       id: txnId,
       account: revolutCHF.id,
@@ -1616,7 +1622,7 @@ async function checkRevolutBalanceAndCorrect({
     result.success = true;
 
     logger.info(
-      `Revolut Differenz: Booked ${(result.difference / 100).toFixed(2)} CHF to Revolut CHF (current: ${(expectedTotalCHF / 100).toFixed(2)}, calculated: ${(result.accountBalance / 100).toFixed(2)})`,
+      `[Revolut Balance Check] SUCCESS: Booked ${(result.difference / 100).toFixed(2)} CHF to Revolut CHF (txn ID: ${txnId}, current: ${(expectedTotalCHF / 100).toFixed(2)}, calculated: ${(result.accountBalance / 100).toFixed(2)})`,
     );
 
     return result;
