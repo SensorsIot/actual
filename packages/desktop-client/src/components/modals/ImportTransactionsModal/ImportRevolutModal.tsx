@@ -17,6 +17,7 @@ import { useSwissBankImport } from './hooks/useSwissBankImport';
 import { type ImportTransaction } from './utils';
 
 import { importPreviewTransactions, importRevolutTransactions } from '@desktop-client/accounts/accountsSlice';
+import { getCategories } from '@desktop-client/categories/categoriesSlice';
 import {
   Modal,
   ModalCloseButton,
@@ -27,6 +28,7 @@ import { useAccounts } from '@desktop-client/hooks/useAccounts';
 import { useCategories } from '@desktop-client/hooks/useCategories';
 import { useDateFormat } from '@desktop-client/hooks/useDateFormat';
 import { pushModal } from '@desktop-client/modals/modalsSlice';
+import { addNotification } from '@desktop-client/notifications/notificationsSlice';
 import { reloadPayees } from '@desktop-client/payees/payeesSlice';
 import { useDispatch } from '@desktop-client/redux';
 
@@ -246,9 +248,37 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
     });
 
     setTransactions(transactionPreview);
-    await fetchCategorySuggestions(transactionPreview);
+    const createdInfo = await fetchCategorySuggestions(transactionPreview);
+
+    // If categories were created, reload them and notify user
+    if (createdInfo && (createdInfo.createdGroups.length > 0 || createdInfo.createdCategories.length > 0)) {
+      // Reload categories to include the newly created ones
+      await dispatch(getCategories());
+
+      // Show notification to user
+      const messages: string[] = [];
+      if (createdInfo.createdGroups.length > 0) {
+        messages.push(t('Created category groups: {{groups}}', {
+          groups: createdInfo.createdGroups.join(', '),
+        }));
+      }
+      if (createdInfo.createdCategories.length > 0) {
+        messages.push(t('Created categories: {{categories}}', {
+          categories: createdInfo.createdCategories.join(', '),
+        }));
+      }
+
+      dispatch(addNotification({
+        notification: {
+          type: 'message',
+          message: messages.join(' '),
+          title: t('Missing categories created'),
+        },
+      }));
+    }
+
     setLoadingState(null);
-  }, [accounts, dispatch, fetchCategorySuggestions]);
+  }, [accounts, dispatch, fetchCategorySuggestions, t]);
 
   // Toggle transaction selection
   function onCheckTransaction(trxId: string) {

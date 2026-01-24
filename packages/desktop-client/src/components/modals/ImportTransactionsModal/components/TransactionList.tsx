@@ -126,21 +126,7 @@ export function TransactionList({
                 showStatus={showStatus}
                 showCurrency={showCurrency}
                 isSwissBankImport={isSwissBankImport}
-                selectedCategory={(() => {
-                  const catInfo = transactionCategories?.get(trans.trx_id);
-                  const selectedCat = catInfo?.selectedCategory;
-                  if (isSwissBankImport) {
-                    console.log('[TransactionList] Rendering transaction:', {
-                      trx_id: trans.trx_id,
-                      payee: trans.payee_name,
-                      existing: trans.existing,
-                      hasCatInfo: !!catInfo,
-                      selectedCat,
-                      transCategory: trans.category,
-                    });
-                  }
-                  return selectedCat;
-                })()}
+                selectedCategory={transactionCategories?.get(trans.trx_id)?.selectedCategory}
                 onCategoryChange={onTransactionCategoryChange}
                 editedNotes={transactionNotes?.get(trans.trx_id)}
                 onNotesChange={onTransactionNotesChange}

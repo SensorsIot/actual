@@ -309,10 +309,12 @@ export function Transaction({
       >
         {/* Show dropdown for ALL Swiss bank import transactions (new and existing) */}
         {isSwissBankImport && !transaction.isMatchedTransaction ? (
-          (() => {
-            const categoryDisplayName = getCategoryDisplayName(transaction.category);
-            const finalValue = selectedCategory || categoryDisplayName || '';
-            const options: [string, string][] = [
+          <Select
+            value={selectedCategory || getCategoryDisplayName(transaction.category) || ''}
+            onChange={(value: string) => {
+              onCategoryChange?.(transaction.trx_id, value || null);
+            }}
+            options={[
               ['', t('Select category...')],
               ...categoryGroups
                 .flatMap(group =>
@@ -322,42 +324,18 @@ export function Transaction({
                   })
                 )
                 .sort((a, b) => a[0].localeCompare(b[0])),
-            ];
-            const valueInOptions = options.some(([val]) => val === finalValue);
-            console.log('[Transaction] Select value:', {
-              trx_id: transaction.trx_id,
-              payee: transaction.payee_name,
-              selectedCategory,
-              finalValue,
-              valueInOptions,
-              optionsCount: options.length,
-            });
-            if (!valueInOptions && finalValue) {
-              console.warn('[Transaction] WARNING: finalValue not found in options!', {
-                finalValue,
-                firstFewOptions: options.slice(0, 10).map(([v]) => v),
-              });
-            }
-            return (
-              <Select
-                value={finalValue}
-                onChange={(value: string) => {
-                  onCategoryChange?.(transaction.trx_id, value || null);
-                }}
-                options={options}
-                style={{
-                  fontSize: '0.85em',
-                  padding: '4px 6px',
-                  minHeight: 32,
-                  width: '100%',
-                  backgroundColor: (!selectedCategory && !categoryDisplayName) ? theme.errorBackground : theme.tableBackground,
-                  border: '1px solid ' + ((!selectedCategory && !categoryDisplayName) ? theme.errorBorder : theme.tableBorder),
-                  borderRadius: 4,
-                  color: (!selectedCategory && !categoryDisplayName) ? theme.errorText : undefined,
-                }}
-              />
-            );
-          })()
+            ]}
+            style={{
+              fontSize: '0.85em',
+              padding: '4px 6px',
+              minHeight: 32,
+              width: '100%',
+              backgroundColor: (!selectedCategory && !getCategoryDisplayName(transaction.category)) ? theme.errorBackground : theme.tableBackground,
+              border: '1px solid ' + ((!selectedCategory && !getCategoryDisplayName(transaction.category)) ? theme.errorBorder : theme.tableBorder),
+              borderRadius: 4,
+              color: (!selectedCategory && !getCategoryDisplayName(transaction.category)) ? theme.errorText : undefined,
+            }}
+          />
         ) : (
           // Show text for non-Swiss imports only
           selectedCategory || getCategoryDisplayName(transaction.category)

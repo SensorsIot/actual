@@ -78,6 +78,7 @@ export type AccountHandlers = {
   'swiss-bank-balance-check': typeof checkAndCorrectBalance;
   'swiss-bank-match-payees': typeof matchPayeesToCategories;
   'swiss-bank-add-payee-mappings': typeof addPayeeMappings;
+  'swiss-bank-ensure-categories': typeof ensureCategoriesExist;
   'revolut-balance-check': typeof checkRevolutBalanceAndCorrect;
 };
 
@@ -2092,6 +2093,75 @@ async function addPayeeMappings({
 }
 
 /**
+ * Ensure that all referenced categories exist in the budget.
+ * Creates missing category groups and categories as needed.
+ * Returns a list of what was created for user notification.
+ */
+async function ensureCategoriesExist({
+  categories,
+}: {
+  categories: string[]; // Array of "Group:Category" format strings
+}): Promise<{
+  createdGroups: string[];
+  createdCategories: string[];
+}> {
+  const createdGroups: string[] = [];
+  const createdCategories: string[] = [];
+
+  // Get unique category strings
+  const uniqueCategories = [...new Set(categories.filter(c => c && c.includes(':')))];
+
+  for (const categoryString of uniqueCategories) {
+    const [groupName, categoryName] = categoryString.split(':');
+    if (!groupName || !categoryName) {
+      continue;
+    }
+
+    // Check if category group exists
+    let group = await db.first<{ id: string; name: string }>(
+      'SELECT id, name FROM category_groups WHERE UPPER(name) = ? AND tombstone = 0',
+      [groupName.toUpperCase()],
+    );
+
+    // Create group if it doesn't exist
+    if (!group) {
+      try {
+        const groupId = await db.insertCategoryGroup({ name: groupName });
+        group = { id: groupId, name: groupName };
+        createdGroups.push(groupName);
+        logger.info(`[ensureCategoriesExist] Created category group: "${groupName}"`);
+      } catch (err) {
+        logger.warn(`[ensureCategoriesExist] Failed to create category group "${groupName}": ${err}`);
+        continue;
+      }
+    }
+
+    // Check if category exists under this group
+    const existingCategory = await db.first<{ id: string }>(
+      'SELECT id FROM categories WHERE cat_group = ? AND UPPER(name) = ? AND tombstone = 0',
+      [group.id, categoryName.toUpperCase()],
+    );
+
+    // Create category if it doesn't exist
+    if (!existingCategory) {
+      try {
+        await db.insertCategory({ name: categoryName, cat_group: group.id });
+        createdCategories.push(categoryString);
+        logger.info(`[ensureCategoriesExist] Created category: "${categoryString}"`);
+      } catch (err) {
+        logger.warn(`[ensureCategoriesExist] Failed to create category "${categoryString}": ${err}`);
+      }
+    }
+  }
+
+  if (createdGroups.length > 0 || createdCategories.length > 0) {
+    logger.info(`[ensureCategoriesExist] Summary: Created ${createdGroups.length} groups, ${createdCategories.length} categories`);
+  }
+
+  return { createdGroups, createdCategories };
+}
+
+/**
  * Learn payee-category mappings from existing transactions.
  * Matches Python: learn_categories_from_existing()
  */
@@ -2598,6 +2668,7 @@ app.method('swiss-bank-save-payee-mapping', saveSwissBankPayeeMapping);
 app.method('swiss-bank-learn-categories', learnCategoriesFromTransactions);
 app.method('swiss-bank-match-payees', matchPayeesToCategories);
 app.method('swiss-bank-add-payee-mappings', addPayeeMappings);
+app.method('swiss-bank-ensure-categories', mutator(ensureCategoriesExist));
 app.method(
   'swiss-bank-balance-check',
   mutator(undoable(checkAndCorrectBalance)),

@@ -16,6 +16,11 @@ export type TransactionCategoryInfo = {
 
 export type TransactionCategoryMap = Map<string, TransactionCategoryInfo>;
 
+export type CreatedCategoriesInfo = {
+  createdGroups: string[];
+  createdCategories: string[];
+};
+
 export type UseSwissBankImportResult = {
   // Category state
   transactionCategories: TransactionCategoryMap;
@@ -28,7 +33,7 @@ export type UseSwissBankImportResult = {
   onTransactionNotesChange: (transactionId: string, notes: string | null) => void;
 
   // Category suggestions
-  fetchCategorySuggestions: (transactions: ImportTransaction[]) => Promise<void>;
+  fetchCategorySuggestions: (transactions: ImportTransaction[]) => Promise<CreatedCategoriesInfo | null>;
 
   // Payee mapping save
   collectPayeeMappingsToSave: () => Array<{ payee: string; category: string; isExpense: boolean }>;
@@ -58,12 +63,10 @@ export function useSwissBankImport(): UseSwissBankImportResult {
     });
   }, []);
 
-  const fetchCategorySuggestions = useCallback(async (transactionsToProcess: ImportTransaction[]) => {
+  const fetchCategorySuggestions = useCallback(async (transactionsToProcess: ImportTransaction[]): Promise<CreatedCategoriesInfo | null> => {
     if (transactionsToProcess.length === 0) {
-      return;
+      return null;
     }
-
-    console.log('[SwissBankImport] fetchCategorySuggestions called with', transactionsToProcess.length, 'transactions');
 
     // Get unique payees with their amounts from current transactions
     const payeeAmounts = new Map<string, number>();
@@ -77,16 +80,23 @@ export function useSwissBankImport(): UseSwissBankImportResult {
       }
     }
 
-    console.log('[SwissBankImport] Unique payees extracted:', Array.from(payeeAmounts.keys()));
-
     // Call API to get proposed categories using the mapping
     const payeeInputs = Array.from(payeeAmounts.entries()).map(([payee, amount]) => ({
       payee,
       amount,
     }));
-    console.log('[SwissBankImport] Calling swiss-bank-match-payees with', payeeInputs.length, 'payees');
     const matchResults = await send('swiss-bank-match-payees', { payees: payeeInputs });
-    console.log('[SwissBankImport] Match results:', matchResults);
+
+    // Collect all proposed categories to ensure they exist
+    const proposedCategories = matchResults
+      .filter((r: { proposedCategory: string | null }) => r.proposedCategory)
+      .map((r: { proposedCategory: string }) => r.proposedCategory);
+
+    // Ensure all proposed categories exist (create if missing)
+    let createdInfo: CreatedCategoriesInfo | null = null;
+    if (proposedCategories.length > 0) {
+      createdInfo = await send('swiss-bank-ensure-categories', { categories: proposedCategories });
+    }
 
     // Create a map of payee -> match result for quick lookup
     const payeeMatchMap = new Map<string, {
@@ -120,22 +130,9 @@ export function useSwissBankImport(): UseSwissBankImportResult {
       });
     }
 
-    // Log categories with matches
-    const withMatches = Array.from(categoryMap.entries()).filter(([, info]) => info.hasMatch);
-    console.log('[SwissBankImport] Categories assigned:', categoryMap.size, 'total,', withMatches.length, 'with matches');
-    if (withMatches.length > 0) {
-      console.log('[SwissBankImport] Matched categories:', withMatches.map(([id, info]) => `${info.payee} -> ${info.selectedCategory}`));
-    }
-
-    // Debug: log full map contents
-    console.log('[SwissBankImport] Full category map:', Array.from(categoryMap.entries()).map(([id, info]) => ({
-      id,
-      payee: info.payee,
-      selectedCategory: info.selectedCategory,
-      hasMatch: info.hasMatch,
-    })));
-
     setTransactionCategories(categoryMap);
+
+    return createdInfo;
   }, []);
 
   const collectPayeeMappingsToSave = useCallback(() => {
