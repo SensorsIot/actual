@@ -128,10 +128,23 @@ When importing a file via `Account.tsx`:
 - Status filtering: only `COMPLETED` (English) or `ABGESCHLOSSEN` (German) rows are imported.
 - Date/time is normalized to `YYYY-MM-DD`.
 - Payee is taken from the description column.
-- Transaction types are classified as `topup`, `swift_transfer`, `atm`, `exchange`, `card_payment`, or `expense`.
-- **Topup distinction**: Transactions marked as "Topup" are further classified:
-  - If description contains "migros" or "mifgros" → Transfer from Migros bank
-  - Otherwise → External payment (not a transfer, treated as normal transaction)
+
+### Revolut transaction classification
+
+**1. Payment** (Revolut → Payee, no linking)
+- card_payment, card_refund, cashback, refund, reward, fee, topup
+- transfer (without "SWIFT Transfer to" in description)
+
+**2. Transfer** (Revolut ↔ Bank/Kasse, create counter-transaction)
+- ATM → Kasse (convert to CHF)
+- transfer with "SWIFT Transfer to" → Migros Bank
+
+**3. Exchange** (Revolut ↔ Revolut, create counter-transaction)
+- exchange → Revolut {TARGET_CURRENCY}
+- Use converted CHF amount to record transaction (neutral exchange)
+
+**4. Skip**
+- TEMP_BLOCK
 
 ### Multi-currency handling
 
@@ -246,14 +259,23 @@ description: "586a4b7b-5ebd-459b-9326-4eb40296d2b9"  ← UUID of transfer payee
 
 The parser (`parse-file.ts`) classifies transactions and sets `transfer_account`:
 
-**Revolut** (`classifyRevolutTransaction`):
-| Transaction Type | Detection Pattern | `transferAccount` |
-|-----------------|-------------------|-------------------|
-| ATM withdrawal | `art === 'atm'` or description contains "cash withdrawal" | `'Kasse'` |
-| Currency exchange | `art === 'exchange'` | `'Revolut {TARGET_CURRENCY}'` |
-| Top-up from Migros bank | `art === 'topup'` + description contains "migros" or "mifgros" | Bank account (from settings) |
-| Payment from external source | `art === 'topup'` + description does NOT contain "migros" | `null` (treated as normal transaction) |
-| SWIFT transfer | `art === 'transfer'` + "swift"/"sepa" in description | Bank account (from settings) |
+**Revolut** (`classifyRevolutTransaction`) - uses switch-case on `art.toLowerCase()`:
+
+| Case | Internal Type | `transferAccount` | Category |
+|------|---------------|-------------------|----------|
+| `card payment`, `kartenzahlung` | `payment` | `null` | Payment |
+| `card refund` | `payment` | `null` | Payment |
+| `cashback` | `payment` | `null` | Payment |
+| `refund` | `payment` | `null` | Payment |
+| `reward` | `payment` | `null` | Payment |
+| `fee` | `payment` | `null` | Payment |
+| `topup`, `top-up` | `payment` | `null` | Payment |
+| `transfer` (no "SWIFT Transfer to") | `payment` | `null` | Payment |
+| `transfer` (with "SWIFT Transfer to") | `swift_transfer` | `'BANK'` | Transfer |
+| `atm` | `atm` | `'Kasse'` | Transfer |
+| `exchange` | `exchange` | `'Revolut {TARGET}'` | Exchange |
+| `temp_block` | `temp_block` | `null` | Skip |
+| (default) | `payment` | `null` | Payment |
 
 **Migros Bank** (`classifyMigrosTransaction`):
 | Transaction Type | Detection Pattern | `transferAccount` |
@@ -294,9 +316,14 @@ The import handlers (`importRevolutTransactions`, `importMigrosTransactions` in 
 ### Category handling for transfers
 
 Transfer-type transactions are excluded from category auto-matching:
-- Transfer types: `['topup', 'swift_transfer', 'atm', 'exchange']`
+- Transfer types: `['swift_transfer', 'atm', 'exchange']`
 - These transactions get their payee set to a transfer payee instead
 - Transfers don't need categories in Actual Budget
+
+### Skipped transaction types
+
+The following transaction types are skipped entirely during import:
+- `temp_block` - Authorization holds (not imported)
 
 ### Import result types
 

@@ -477,7 +477,12 @@ async function parseMigrosCSV(
 
 /**
  * Classify Revolut transaction type and detect transfer targets.
- * Based on Python FSD Section 16.
+ *
+ * Categories:
+ * 1. Payment (Revolut → Payee, no linking)
+ * 2. Transfer (Revolut ↔ Bank/Kasse, create counter-transaction)
+ * 3. Exchange (Revolut ↔ Revolut, create counter-transaction)
+ * 4. Skip (TEMP_BLOCK)
  */
 function classifyRevolutTransaction(
   art: string,
@@ -487,54 +492,67 @@ function classifyRevolutTransaction(
   const artLower = art.toLowerCase();
   const descLower = beschreibung.toLowerCase();
 
-  // Topup: Check if it's from Migros bank or external source
-  if (artLower === 'topup' || artLower === 'top-up') {
-    // Case 1: Top-up from Migros bank (transfer between accounts)
-    // Look for "Migros", "Konto Migros", "Migrosbank", etc.
-    if (descLower.includes('migros') || descLower.includes('mifgros')) {
-      return { type: 'topup', transferAccount: null };
-    }
+  switch (artLower) {
+    // ===== TRANSFER: Revolut ↔ Bank/Kasse =====
 
-    // Case 2: Payment from external source (not a transfer, treat as normal transaction)
-    // Examples: "Payment from ANDREAS SPIESS", "Payment from ALIBABA.COM"
-    return { type: 'expense', transferAccount: null };
+    case 'atm':
+      // ATM Withdrawal: Revolut -> Kasse (convert to CHF)
+      return { type: 'atm', transferAccount: 'Kasse' };
+
+    case 'transfer':
+      // Check for SWIFT Transfer to bank
+      if (descLower.includes('swift transfer to')) {
+        return { type: 'swift_transfer', transferAccount: 'BANK' };
+      }
+      // Regular transfer: treat as payment
+      return { type: 'payment', transferAccount: null };
+
+    // ===== EXCHANGE: Revolut ↔ Revolut =====
+
+    case 'exchange':
+      // Currency Exchange: use converted CHF amount (neutral)
+      const exchangeMatch = beschreibung.match(/(?:to|nach|->)\s*([A-Z]{3})/i);
+      const targetCurrency = exchangeMatch ? exchangeMatch[1].toUpperCase() : null;
+      if (targetCurrency && targetCurrency !== currency) {
+        return { type: 'exchange', transferAccount: `Revolut ${targetCurrency}` };
+      }
+      return { type: 'exchange', transferAccount: null };
+
+    // ===== PAYMENT: Revolut → Payee (no linking) =====
+
+    case 'card payment':
+    case 'kartenzahlung':
+    case 'card refund':
+    case 'cashback':
+    case 'refund':
+    case 'reward':
+    case 'fee':
+    case 'topup':
+    case 'top-up':
+      return { type: 'payment', transferAccount: null };
+
+    // ===== SKIP =====
+
+    case 'temp_block':
+      return { type: 'temp_block', transferAccount: null };
+
+    // ===== DEFAULT: Payment =====
+
+    default:
+      // Check description for special patterns
+      if (descLower.includes('cash withdrawal')) {
+        return { type: 'atm', transferAccount: 'Kasse' };
+      }
+      if (descLower.includes('exchanged')) {
+        const match = beschreibung.match(/(?:to|nach|->)\s*([A-Z]{3})/i);
+        const target = match ? match[1].toUpperCase() : null;
+        if (target && target !== currency) {
+          return { type: 'exchange', transferAccount: `Revolut ${target}` };
+        }
+        return { type: 'exchange', transferAccount: null };
+      }
+      return { type: 'payment', transferAccount: null };
   }
-
-  // SWIFT Transfer: Revolut -> Bank
-  if (
-    artLower === 'transfer' &&
-    (descLower.includes('swift') || descLower.includes('sepa'))
-  ) {
-    return { type: 'swift_transfer', transferAccount: null };
-  }
-
-  // ATM Withdrawal: Revolut -> Cash (Kasse)
-  if (artLower === 'atm' || descLower.includes('cash withdrawal')) {
-    return { type: 'atm', transferAccount: 'Kasse' };
-  }
-
-  // Currency Exchange: Between Revolut currency accounts
-  if (artLower === 'exchange' || descLower.includes('exchanged')) {
-    // Extract target currency from description if possible
-    const exchangeMatch = beschreibung.match(
-      /(?:to|nach|->)\s*([A-Z]{3})/i,
-    );
-    const targetCurrency = exchangeMatch ? exchangeMatch[1].toUpperCase() : null;
-    if (targetCurrency && targetCurrency !== currency) {
-      return {
-        type: 'exchange',
-        transferAccount: `Revolut ${targetCurrency}`,
-      };
-    }
-    return { type: 'exchange', transferAccount: null };
-  }
-
-  // Regular card payment or other transaction
-  if (artLower === 'card payment' || artLower === 'kartenzahlung') {
-    return { type: 'card_payment', transferAccount: null };
-  }
-
-  return { type: 'expense', transferAccount: null };
 }
 
 /**
@@ -637,6 +655,12 @@ async function parseRevolutCSV(
       beschreibung,
       currency,
     );
+
+    // Skip TEMP_BLOCK transactions (authorization holds, typically reverted)
+    if (txnType === 'temp_block') {
+      logger.info(`[Revolut] Skipping TEMP_BLOCK transaction: ${beschreibung}`);
+      continue;
+    }
 
     // Use currency + timestamp for unique ID (timestamp is unique per transaction)
     const startDateStr = getRevolutField(

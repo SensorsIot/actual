@@ -1306,9 +1306,9 @@ async function importRevolutTransactions({
       }
 
       // Load payee-category mapping and apply to transactions
-      // Skip category assignment for transfer transaction types (topup, swift_transfer, atm, exchange)
+      // Skip category assignment for transfer transaction types (swift_transfer, atm, exchange)
       // since transfers shouldn't have categories in Actual Budget
-      const transferTypes = ['topup', 'swift_transfer', 'atm', 'exchange'];
+      const transferTypes = ['swift_transfer', 'atm', 'exchange'];
       const payeeMapping = await getSwissBankPayeeMapping({});
       if (Object.keys(payeeMapping).length > 0) {
         for (const txn of currencyTransactions) {
@@ -1446,22 +1446,49 @@ async function importRevolutTransactions({
         }
       }
 
-      // Handle non-exchange transfers (topup, atm, swift_transfer)
+      // Handle non-exchange transfers with switch-case for clarity
       for (const imported of importedWithMeta) {
         const { id: txnId, txn, accountId, currency } = imported;
         const txnType = txn.transaction_type || '';
 
-        // Skip already-linked exchanges
+        // Skip already-linked exchanges and non-transfer types
         if (linkedExchangeIds.has(txnId)) continue;
 
         // Determine target account based on transaction type
         let targetAccountName: string | null = null;
-        if (txnType === 'topup' || txnType === 'swift_transfer') {
-          targetAccountName = bankAccountName;
-        } else if (txnType === 'atm') {
-          targetAccountName = cashAccountName;
+
+        // Transaction Type Treatments:
+        // ┌─────────────────────┬─────────────────────────────────────────────┐
+        // │ TRANSFER TYPES      │ Create linked transfer to another account   │
+        // │ exchange            │ Skip (linked above via timestamp matching)  │
+        // │ swift_transfer      │ Link to Migros Bank (always create)         │
+        // │ atm                 │ Link to Kasse (always create)               │
+        // ├─────────────────────┼─────────────────────────────────────────────┤
+        // │ PAYMENT             │ Normal transaction with payee (no linking)  │
+        // │ payment             │ All payment types (card, fee, topup, etc.)  │
+        // └─────────────────────┴─────────────────────────────────────────────┘
+        switch (txnType) {
+          // === TRANSFER: Exchange (already linked above) ===
+          case 'exchange':
+            continue;
+
+          // === TRANSFER: Revolut → Migros Bank ===
+          case 'swift_transfer':
+            targetAccountName = bankAccountName;
+            break;
+
+          // === TRANSFER: Revolut → Kasse ===
+          case 'atm':
+            targetAccountName = cashAccountName;
+            break;
+
+          // === PAYMENT: No transfer linking ===
+          case 'payment':
+            continue;
+
+          default:
+            continue;
         }
-        // Note: exchanges are handled above, not here
 
         if (!targetAccountName) continue;
 
@@ -1485,8 +1512,8 @@ async function importRevolutTransactions({
           logger.info(`Created transfer target account: ${targetAccountName}`);
         }
 
-        // For non-exchange transfers, counter amount is inverse
         const counterAmount = -txn.amount;
+        const txnDate = txn.date || monthUtils.currentDay();
 
         // Get transfer payees for both directions
         const targetTransferPayee = await db.first<{ id: string }>(
@@ -1498,22 +1525,20 @@ async function importRevolutTransactions({
           [accountId],
         );
 
-        // Create counter-transaction in target account
+        // Create counter-transaction
         const counterId = uuidv4();
-        const today = txn.date || monthUtils.currentDay();
 
         await db.insertTransaction({
           id: counterId,
           account: targetAccountId,
           amount: counterAmount,
           payee: sourceTransferPayee?.id || null,
-          date: today,
+          date: txnDate,
           notes: `[Transfer] ${txn.imported_payee || txn.payee_name || ''}`,
           cleared: true,
           transfer_id: txnId,
         });
 
-        // Update original transaction with link to counter
         await db.updateTransaction({
           id: txnId,
           transfer_id: counterId,
@@ -1521,9 +1546,8 @@ async function importRevolutTransactions({
         });
 
         result.transfersLinked++;
-
         logger.info(
-          `Linked transfer: ${getRevolutAccountNameFromCurrency(currency)} -> ${targetAccountName} (${counterAmount / 100} CHF)`,
+          `Created transfer: ${getRevolutAccountNameFromCurrency(currency)} -> ${targetAccountName} (${counterAmount / 100} CHF)`,
         );
       }
     }
