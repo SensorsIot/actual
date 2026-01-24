@@ -688,34 +688,37 @@ async function parseRevolutCSV(
     exchangesByTimestamp.get(key)!.push(st);
   }
 
-  // For each timestamp with exchanges, match CHF side with non-CHF side
-  for (const [, dayExchanges] of exchangesByTimestamp) {
-    // Find CHF receiving side (positive amount, currency CHF)
-    const chfSide = dayExchanges.find(
-      t => t.currency === 'CHF' && t.amount > 0
-    );
-
-    if (chfSide) {
-      // Find non-CHF sending side (negative amount, non-CHF currency)
-      const otherSide = dayExchanges.find(
-        t => t.currency !== 'CHF' && t.amount < 0
-      );
-
-      if (otherSide) {
-        // Use the actual CHF amount for the non-CHF side (as negative)
-        const actualCHFAmount = chfSide.amount;
-        otherSide.amount = -Math.abs(actualCHFAmount);
-
-        // Update notes to reflect the actual exchange
-        if (otherSide.notes) {
-          otherSide.notes += `\n[Actual CHF: ${actualCHFAmount.toFixed(2)}]`;
-        }
-
-        logger.info(
-          `[Revolut Exchange] Matched ${otherSide.currency} -> CHF: using actual amount ${actualCHFAmount} CHF`
-        );
-      }
+  // For each timestamp with exchanges, match pairs and use actual amounts
+  for (const [, exchangePair] of exchangesByTimestamp) {
+    if (exchangePair.length !== 2) {
+      // Skip if not exactly 2 transactions (unusual case)
+      continue;
     }
+
+    // Find the CHF side (if any) - it has the "true" CHF amount
+    const chfSide = exchangePair.find(t => t.currency === 'CHF');
+    const otherSide = exchangePair.find(t => t.currency !== 'CHF');
+
+    if (chfSide && otherSide) {
+      // One side is CHF - use the CHF amount for both (it's the actual amount)
+      const chfAmount = chfSide.amount;
+      // The other side should have the opposite sign
+      otherSide.amount = -chfAmount;
+
+      // Update notes to reflect the actual exchange
+      if (otherSide.notes) {
+        otherSide.notes += `\n[Actual CHF: ${Math.abs(chfAmount).toFixed(2)}]`;
+      }
+
+      const direction = chfAmount > 0
+        ? `${otherSide.currency} -> CHF`
+        : `CHF -> ${otherSide.currency}`;
+      logger.info(
+        `[Revolut Exchange] Matched ${direction}: using actual amount ${Math.abs(chfAmount).toFixed(2)} CHF`
+      );
+    }
+    // If neither side is CHF (e.g., EUR -> USD), both use API rates - leave as-is
+    // They should roughly match after conversion to CHF
   }
 
   // Collect unique currencies found

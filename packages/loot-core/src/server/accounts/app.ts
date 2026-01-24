@@ -1400,17 +1400,14 @@ async function importRevolutTransactions({
         exchangesByTimestamp.get(key)!.push(imp);
       }
 
-      // Link exchange pairs (CHF side with non-CHF side)
+      // Link exchange pairs
       const linkedExchangeIds = new Set<string>();
-      for (const [, dayExchanges] of exchangesByTimestamp) {
-        // Find CHF side (positive amount)
-        const chfSide = dayExchanges.find(
-          imp => imp.currency === 'CHF' && imp.txn.amount > 0
-        );
-        // Find non-CHF side (negative amount)
-        const otherSide = dayExchanges.find(
-          imp => imp.currency !== 'CHF' && imp.txn.amount < 0
-        );
+      for (const [, exchangePair] of exchangesByTimestamp) {
+        if (exchangePair.length !== 2) continue;
+
+        // Find CHF side and other side
+        const chfSide = exchangePair.find(imp => imp.currency === 'CHF');
+        const otherSide = exchangePair.find(imp => imp.currency !== 'CHF');
 
         if (chfSide && otherSide) {
           // Link them as transfers
