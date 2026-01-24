@@ -9,6 +9,8 @@ export-2020-01-10.csv
 
 # Financial/Accounting Data
 *.csv
+*.xls
+*.xlsx
 *.ofx
 *.qfx
 *.qif
