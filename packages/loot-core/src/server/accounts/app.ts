@@ -1614,7 +1614,7 @@ async function checkRevolutBalanceAndCorrect({
       amount: result.difference,
       payee: payee.id,
       category: categoryId,
-      date: parseInt(today.replace(/-/g, ''), 10),
+      date: today,
       notes: `Saldokorrektur: Ist ${(expectedTotalCHF / 100).toFixed(2)} CHF, Berechnet ${(result.accountBalance / 100).toFixed(2)} CHF`,
       cleared: true,
     });
