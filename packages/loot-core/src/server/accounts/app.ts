@@ -2108,32 +2108,48 @@ async function ensureCategoriesExist({
   const createdGroups: string[] = [];
   const createdCategories: string[] = [];
 
-  // Get unique category strings
+  // Track groups created in this run to avoid duplicates (DB might not be committed yet)
+  const groupCache = new Map<string, { id: string; name: string }>();
+
+  // Get unique category strings and normalize them
   const uniqueCategories = [...new Set(categories.filter(c => c && c.includes(':')))];
 
   for (const categoryString of uniqueCategories) {
-    const [groupName, categoryName] = categoryString.split(':');
+    const parts = categoryString.split(':');
+    const groupName = parts[0]?.trim();
+    const categoryName = parts[1]?.trim();
     if (!groupName || !categoryName) {
       continue;
     }
 
-    // Check if category group exists
-    let group = await db.first<{ id: string; name: string }>(
-      'SELECT id, name FROM category_groups WHERE UPPER(name) = ? AND tombstone = 0',
-      [groupName.toUpperCase()],
-    );
+    const groupKey = groupName.toUpperCase();
+
+    // Check cache first (for groups created in this run)
+    let group = groupCache.get(groupKey);
+
+    // If not in cache, check database
+    if (!group) {
+      group = await db.first<{ id: string; name: string }>(
+        'SELECT id, name FROM category_groups WHERE UPPER(name) = ? AND tombstone = 0',
+        [groupKey],
+      ) || undefined;
+    }
 
     // Create group if it doesn't exist
     if (!group) {
       try {
         const groupId = await db.insertCategoryGroup({ name: groupName });
         group = { id: groupId, name: groupName };
+        groupCache.set(groupKey, group);
         createdGroups.push(groupName);
         logger.info(`[ensureCategoriesExist] Created category group: "${groupName}"`);
       } catch (err) {
         logger.warn(`[ensureCategoriesExist] Failed to create category group "${groupName}": ${err}`);
         continue;
       }
+    } else {
+      // Add existing group to cache for future iterations
+      groupCache.set(groupKey, group);
     }
 
     // Check if category exists under this group
@@ -2146,10 +2162,10 @@ async function ensureCategoriesExist({
     if (!existingCategory) {
       try {
         await db.insertCategory({ name: categoryName, cat_group: group.id });
-        createdCategories.push(categoryString);
-        logger.info(`[ensureCategoriesExist] Created category: "${categoryString}"`);
+        createdCategories.push(`${groupName}:${categoryName}`);
+        logger.info(`[ensureCategoriesExist] Created category: "${groupName}:${categoryName}"`);
       } catch (err) {
-        logger.warn(`[ensureCategoriesExist] Failed to create category "${categoryString}": ${err}`);
+        logger.warn(`[ensureCategoriesExist] Failed to create category "${groupName}:${categoryName}": ${err}`);
       }
     }
   }
