@@ -312,32 +312,39 @@ export function Transaction({
           (() => {
             const categoryDisplayName = getCategoryDisplayName(transaction.category);
             const finalValue = selectedCategory || categoryDisplayName || '';
+            const options: [string, string][] = [
+              ['', t('Select category...')],
+              ...categoryGroups
+                .flatMap(group =>
+                  (group.categories || []).map(cat => {
+                    const fullName = `${group.name}:${cat.name}`;
+                    return [fullName, fullName] as [string, string];
+                  })
+                )
+                .sort((a, b) => a[0].localeCompare(b[0])),
+            ];
+            const valueInOptions = options.some(([val]) => val === finalValue);
             console.log('[Transaction] Select value:', {
               trx_id: transaction.trx_id,
               payee: transaction.payee_name,
               selectedCategory,
-              transactionCategory: transaction.category,
-              categoryDisplayName,
               finalValue,
+              valueInOptions,
+              optionsCount: options.length,
             });
+            if (!valueInOptions && finalValue) {
+              console.warn('[Transaction] WARNING: finalValue not found in options!', {
+                finalValue,
+                firstFewOptions: options.slice(0, 10).map(([v]) => v),
+              });
+            }
             return (
               <Select
                 value={finalValue}
                 onChange={(value: string) => {
                   onCategoryChange?.(transaction.trx_id, value || null);
                 }}
-
-                options={[
-                  ['', t('Select category...')],
-                  ...categoryGroups
-                    .flatMap(group =>
-                      (group.categories || []).map(cat => {
-                        const fullName = `${group.name}:${cat.name}`;
-                        return [fullName, fullName] as [string, string];
-                      })
-                    )
-                    .sort((a, b) => a[0].localeCompare(b[0])),
-                ]}
+                options={options}
                 style={{
                   fontSize: '0.85em',
                   padding: '4px 6px',
