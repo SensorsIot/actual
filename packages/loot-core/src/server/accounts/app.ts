@@ -1381,10 +1381,81 @@ async function importRevolutTransactions({
     }
 
     // Create linked transfers for transfer-type transactions
+    // Note: For exchanges, both sides are imported from CSV with matching amounts,
+    // so we link them instead of creating counter-transactions
     if (!isPreview && createTransfers && importedWithMeta.length > 0) {
+      // First, collect all exchange transactions to link them
+      const exchangeTransactions = importedWithMeta.filter(
+        imp => imp.txn.transaction_type === 'exchange'
+      );
+
+      // Group exchanges by timestamp for precise matching (handles multiple exchanges per day)
+      const exchangesByTimestamp = new Map<string, typeof importedWithMeta>();
+      for (const imp of exchangeTransactions) {
+        // Use exchange_timestamp if available, fall back to date
+        const key = (imp.txn as { exchange_timestamp?: string }).exchange_timestamp || imp.txn.date || '';
+        if (!exchangesByTimestamp.has(key)) {
+          exchangesByTimestamp.set(key, []);
+        }
+        exchangesByTimestamp.get(key)!.push(imp);
+      }
+
+      // Link exchange pairs (CHF side with non-CHF side)
+      const linkedExchangeIds = new Set<string>();
+      for (const [, dayExchanges] of exchangesByTimestamp) {
+        // Find CHF side (positive amount)
+        const chfSide = dayExchanges.find(
+          imp => imp.currency === 'CHF' && imp.txn.amount > 0
+        );
+        // Find non-CHF side (negative amount)
+        const otherSide = dayExchanges.find(
+          imp => imp.currency !== 'CHF' && imp.txn.amount < 0
+        );
+
+        if (chfSide && otherSide) {
+          // Link them as transfers
+          const chfAccountId = chfSide.accountId;
+          const otherAccountId = otherSide.accountId;
+
+          // Get transfer payees
+          const chfTransferPayee = await db.first<{ id: string }>(
+            'SELECT id FROM payees WHERE transfer_acct = ? AND tombstone = 0',
+            [chfAccountId],
+          );
+          const otherTransferPayee = await db.first<{ id: string }>(
+            'SELECT id FROM payees WHERE transfer_acct = ? AND tombstone = 0',
+            [otherAccountId],
+          );
+
+          // Link the transactions
+          await db.updateTransaction({
+            id: chfSide.id,
+            transfer_id: otherSide.id,
+            payee: otherTransferPayee?.id || null,
+          });
+          await db.updateTransaction({
+            id: otherSide.id,
+            transfer_id: chfSide.id,
+            payee: chfTransferPayee?.id || null,
+          });
+
+          linkedExchangeIds.add(chfSide.id);
+          linkedExchangeIds.add(otherSide.id);
+          result.transfersLinked++;
+
+          logger.info(
+            `Linked exchange: ${otherSide.currency} -> CHF (${Math.abs(otherSide.txn.amount) / 100} CHF)`
+          );
+        }
+      }
+
+      // Handle non-exchange transfers (topup, atm, swift_transfer)
       for (const imported of importedWithMeta) {
         const { id: txnId, txn, accountId, currency } = imported;
         const txnType = txn.transaction_type || '';
+
+        // Skip already-linked exchanges
+        if (linkedExchangeIds.has(txnId)) continue;
 
         // Determine target account based on transaction type
         let targetAccountName: string | null = null;
@@ -1392,9 +1463,8 @@ async function importRevolutTransactions({
           targetAccountName = bankAccountName;
         } else if (txnType === 'atm') {
           targetAccountName = cashAccountName;
-        } else if (txnType === 'exchange' && txn.transfer_account) {
-          targetAccountName = txn.transfer_account;
         }
+        // Note: exchanges are handled above, not here
 
         if (!targetAccountName) continue;
 
@@ -1418,23 +1488,10 @@ async function importRevolutTransactions({
           logger.info(`Created transfer target account: ${targetAccountName}`);
         }
 
-        // Calculate counter-transaction amount
-        let counterAmount: number;
-        if (txnType === 'exchange') {
-          // For exchanges, try to parse the converted amount
-          counterAmount =
-            parseExchangeAmount(
-              txn.imported_payee || txn.payee_name || '',
-              txn.amount,
-            ) || -txn.amount;
-        } else {
-          // For other transfers, counter amount is inverse
-          counterAmount = -txn.amount;
-        }
+        // For non-exchange transfers, counter amount is inverse
+        const counterAmount = -txn.amount;
 
-        // Get transfer payees for both directions:
-        // - targetTransferPayee: payee representing target account (used in source transaction)
-        // - sourceTransferPayee: payee representing source account (used in target transaction)
+        // Get transfer payees for both directions
         const targetTransferPayee = await db.first<{ id: string }>(
           'SELECT id FROM payees WHERE transfer_acct = ? AND tombstone = 0',
           [targetAccountId],
@@ -1452,24 +1509,24 @@ async function importRevolutTransactions({
           id: counterId,
           account: targetAccountId,
           amount: counterAmount,
-          payee: sourceTransferPayee?.id || null, // Points back to source account
+          payee: sourceTransferPayee?.id || null,
           date: today,
           notes: `[Transfer] ${txn.imported_payee || txn.payee_name || ''}`,
           cleared: true,
           transfer_id: txnId,
         });
 
-        // Update original transaction with link to counter AND correct transfer payee
+        // Update original transaction with link to counter
         await db.updateTransaction({
           id: txnId,
           transfer_id: counterId,
-          payee: targetTransferPayee?.id || null, // Points to target account
+          payee: targetTransferPayee?.id || null,
         });
 
         result.transfersLinked++;
 
         logger.info(
-          `Linked transfer: ${getRevolutAccountNameFromCurrency(currency)} -> ${targetAccountName} (${counterAmount / 100} ${currency})`,
+          `Linked transfer: ${getRevolutAccountNameFromCurrency(currency)} -> ${targetAccountName} (${counterAmount / 100} CHF)`,
         );
       }
     }

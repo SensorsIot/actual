@@ -652,6 +652,9 @@ async function parseRevolutCSV(
       notesParts.push(`Gebühr: ${fee} ${currencyCode}`);
     }
 
+    // For exchanges, store the timestamp for precise matching
+    const exchangeTimestamp = txnType === 'exchange' ? startDateStr : undefined;
+
     transactions.push({
       amount: amountCHF,
       date: transactionDate,
@@ -662,8 +665,57 @@ async function parseRevolutCSV(
       currency: currencyCode,
       transaction_type: txnType,
       transfer_account: transferAccount,
+      exchange_timestamp: exchangeTimestamp,
       ...(uniqueId && { imported_id: uniqueId }),
     } as StructuredTransaction);
+  }
+
+  // Post-process: Match exchange pairs and use actual CHF amount for both sides
+  // This ensures currency exchanges are neutral (same CHF amount on both sides)
+  const exchangeTransactions = transactions.filter(
+    t => (t as StructuredTransaction).transaction_type === 'exchange'
+  );
+
+  // Group exchanges by timestamp (more precise than date for same-day exchanges)
+  const exchangesByTimestamp = new Map<string, StructuredTransaction[]>();
+  for (const txn of exchangeTransactions) {
+    const st = txn as StructuredTransaction;
+    // Use exchange_timestamp if available, fall back to date
+    const key = (st as { exchange_timestamp?: string }).exchange_timestamp || st.date;
+    if (!exchangesByTimestamp.has(key)) {
+      exchangesByTimestamp.set(key, []);
+    }
+    exchangesByTimestamp.get(key)!.push(st);
+  }
+
+  // For each timestamp with exchanges, match CHF side with non-CHF side
+  for (const [, dayExchanges] of exchangesByTimestamp) {
+    // Find CHF receiving side (positive amount, currency CHF)
+    const chfSide = dayExchanges.find(
+      t => t.currency === 'CHF' && t.amount > 0
+    );
+
+    if (chfSide) {
+      // Find non-CHF sending side (negative amount, non-CHF currency)
+      const otherSide = dayExchanges.find(
+        t => t.currency !== 'CHF' && t.amount < 0
+      );
+
+      if (otherSide) {
+        // Use the actual CHF amount for the non-CHF side (as negative)
+        const actualCHFAmount = chfSide.amount;
+        otherSide.amount = -Math.abs(actualCHFAmount);
+
+        // Update notes to reflect the actual exchange
+        if (otherSide.notes) {
+          otherSide.notes += `\n[Actual CHF: ${actualCHFAmount.toFixed(2)}]`;
+        }
+
+        logger.info(
+          `[Revolut Exchange] Matched ${otherSide.currency} -> CHF: using actual amount ${actualCHFAmount} CHF`
+        );
+      }
+    }
   }
 
   // Collect unique currencies found
