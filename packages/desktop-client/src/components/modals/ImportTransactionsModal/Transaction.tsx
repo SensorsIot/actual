@@ -307,8 +307,12 @@ export function Transaction({
           selectedCategory || getCategoryDisplayName(transaction.category) || undefined
         }
       >
-        {/* Show dropdown for ALL Swiss bank import transactions (new and existing) */}
-        {isSwissBankImport && !transaction.isMatchedTransaction ? (
+        {/* Transfer transactions don't need categories */}
+        {isSwissBankImport && ['swift_transfer', 'atm', 'exchange'].includes((transaction as { transaction_type?: string }).transaction_type || '') ? (
+          <View style={{ color: theme.pageTextSubdued, fontStyle: 'italic', fontSize: '0.85em' }}>
+            {t('Transfer')}
+          </View>
+        ) : isSwissBankImport && !transaction.isMatchedTransaction ? (
           <Select
             value={selectedCategory || getCategoryDisplayName(transaction.category) || ''}
             onChange={(value: string) => {

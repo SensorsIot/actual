@@ -310,7 +310,7 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
     }
 
     // Validate: Check that all non-transfer transactions have categories
-    const transferTypes = ['topup', 'swift_transfer', 'atm', 'exchange'];
+    const transferTypes = ['swift_transfer', 'atm', 'exchange'];
     const transactionsWithoutCategories = transactions.filter(trans => {
       // Skip unselected and existing transactions
       if (trans.isMatchedTransaction || !trans.selected) {
