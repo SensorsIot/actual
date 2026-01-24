@@ -17,7 +17,7 @@ import { useSwissBankImport } from './hooks/useSwissBankImport';
 import { type ImportTransaction } from './utils';
 
 import { importPreviewTransactions, importRevolutTransactions } from '@desktop-client/accounts/accountsSlice';
-import { getCategories } from '@desktop-client/categories/categoriesSlice';
+import { getCategories } from '@desktop-client/budget/budgetSlice';
 import {
   Modal,
   ModalCloseButton,
