@@ -572,6 +572,13 @@ async function parseRevolutCSV(
       relax_column_count: true,
       skip_empty_lines: true,
     }) as Record<string, string>[];
+
+    // Sort by start date to ensure exchange pairs are adjacent
+    data.sort((a, b) => {
+      const dateA = getRevolutField(a, 'Started Date', 'Datum des Beginns') || '';
+      const dateB = getRevolutField(b, 'Started Date', 'Datum des Beginns') || '';
+      return dateA.localeCompare(dateB);
+    });
   } catch (err) {
     errors.push({
       message: 'Failed parsing Revolut CSV: ' + err.message,
