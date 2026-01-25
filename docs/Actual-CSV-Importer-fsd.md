@@ -62,12 +62,12 @@ When importing a file via `Account.tsx`:
 - Rows are sorted with new items first, then existing items.
 - Dates display only the formatted Swiss date for these imports.
 
-### Category auto-matching and learning
+### Category handling
 
-- Payees are matched using Jaccard similarity with a threshold of 0.80.
-- Payee normalization removes accents, lowercases, and trims whitespace before matching.
-- For new payees or when the user changes the suggested category, mappings are stored in `payee_category_mapping.json`.
-- Matching considers transaction direction (expense vs income).
+- Category selections during import are saved to the transaction in the database.
+- Category changes are NOT auto-saved to `payee_category_mapping.json` (no "learning").
+- Existing mappings in `payee_category_mapping.json` can still provide suggestions if present.
+- Transfer transactions (ATM, SWIFT, Exchange) show "Transfer" instead of category dropdown.
 
 ### Import summary modal
 
@@ -379,7 +379,7 @@ The following transaction types are skipped entirely during import:
 ## Appendix B - Config and Storage
 
 - `import_settings.json` stores first-import selections (Migros account, Revolut bank/cash accounts, differenz category).
-- `payee_category_mapping.json` stores payee-to-category mappings for auto-matching.
+- `payee_category_mapping.json` stores payee-to-category mappings (read-only during import, not auto-updated).
 
 ## Appendix C - External Dependencies
 
