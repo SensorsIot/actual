@@ -135,9 +135,11 @@ When importing a file via `Account.tsx`:
 - card_payment, card_refund, cashback, refund, reward, fee, topup
 - transfer (without "SWIFT Transfer to" in description)
 
-**2. Transfer** (Revolut ↔ Bank/Kasse, create counter-transaction)
+**2. Transfer** (Revolut → Bank/Kasse, create counter-transaction)
 - ATM → Kasse (convert to CHF, always create counter)
 - transfer with "SWIFT Transfer to" → Migros Bank (check for existing first to avoid duplicates)
+
+Note: Only Revolut → Migros transfers are detected (via "SWIFT Transfer to" pattern). Migros → Revolut topups do not have a detectable pattern in the Revolut CSV, so all topups are treated as payments.
 
 **3. Exchange** (Revolut ↔ Revolut, create counter-transaction)
 - exchange → Revolut {TARGET_CURRENCY}
@@ -169,7 +171,19 @@ When importing a file via `Account.tsx`:
   - payee: existing if valid, otherwise imported
   - category/notes/cleared: existing preferred, imported as fallback
   - imported_payee: always imported
- - Transfer transactions are linked bidirectionally where applicable.
+- Transfer transactions are linked bidirectionally where applicable.
+
+### Cross-CSV duplicate prevention (Revolut ↔ Migros)
+
+SWIFT transfers appear in both Revolut and Migros CSVs. To avoid duplicates:
+
+1. When Revolut import creates a counter-transaction in Migros Bank, it first checks for existing unlinked transactions with matching amount and date (±1 day)
+2. If found: links to existing transaction instead of creating duplicate
+3. If not found: creates new counter-transaction
+
+This handles both import orders:
+- **Revolut first**: Creates counter in Migros. Later Migros import sees existing linked transaction.
+- **Migros first**: Creates transaction. Later Revolut import finds and links to it.
 
 ### Balance correction (Revolut Differenz)
 
