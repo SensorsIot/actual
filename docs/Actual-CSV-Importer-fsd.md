@@ -136,8 +136,8 @@ When importing a file via `Account.tsx`:
 - transfer (without "SWIFT Transfer to" in description)
 
 **2. Transfer** (Revolut ↔ Bank/Kasse, create counter-transaction)
-- ATM → Kasse (convert to CHF)
-- transfer with "SWIFT Transfer to" → Migros Bank
+- ATM → Kasse (convert to CHF, always create counter)
+- transfer with "SWIFT Transfer to" → Migros Bank (check for existing first to avoid duplicates)
 
 **3. Exchange** (Revolut ↔ Revolut, create counter-transaction)
 - exchange → Revolut {TARGET_CURRENCY}

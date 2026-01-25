@@ -1525,7 +1525,46 @@ async function importRevolutTransactions({
           [accountId],
         );
 
-        // Create counter-transaction
+        // For swift_transfer: Check if matching transaction already exists in Migros
+        // (e.g., from a previous Migros import) to avoid duplicates
+        if (txnType === 'swift_transfer' && targetAccount) {
+          const existingCounterTxn = await db.first<{ id: string }>(
+            `SELECT id FROM transactions
+             WHERE acct = ?
+             AND amount = ?
+             AND transfer_id IS NULL
+             AND tombstone = 0
+             AND date BETWEEN ? AND ?`,
+            [
+              targetAccountId,
+              counterAmount,
+              db.toDateRepr(monthUtils.addDays(txnDate, -1)),
+              db.toDateRepr(monthUtils.addDays(txnDate, 1)),
+            ],
+          );
+
+          if (existingCounterTxn) {
+            // Link to existing transaction instead of creating new one
+            await db.updateTransaction({
+              id: txnId,
+              transfer_id: existingCounterTxn.id,
+              payee: targetTransferPayee?.id || null,
+            });
+            await db.updateTransaction({
+              id: existingCounterTxn.id,
+              transfer_id: txnId,
+              payee: sourceTransferPayee?.id || null,
+            });
+
+            result.transfersLinked++;
+            logger.info(
+              `Linked to existing: ${getRevolutAccountNameFromCurrency(currency)} <-> ${targetAccountName} (${Math.abs(counterAmount) / 100} CHF)`,
+            );
+            continue;
+          }
+        }
+
+        // Create new counter-transaction
         const counterId = uuidv4();
 
         await db.insertTransaction({
