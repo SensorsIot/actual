@@ -2162,9 +2162,10 @@ async function addPayeeMappings({
     }
   }
 
+  // Note: We no longer auto-save payee mappings during import
+  // Users can manually manage mappings via LearnCategoriesModal if needed
   if (added > 0) {
-    await saveSwissBankPayeeMapping({ mapping: existingMapping });
-    logger.info(`Added ${added} new payee-category mappings`);
+    logger.info(`Would have added ${added} new payee-category mappings (auto-save disabled)`);
   }
 
   return { added, skipped };
