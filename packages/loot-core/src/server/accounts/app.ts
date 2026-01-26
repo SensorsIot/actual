@@ -2232,6 +2232,13 @@ async function ensureCategoriesExist({
   // Get unique category strings and normalize them
   const uniqueCategories = [...new Set(categories.filter(c => c && c.includes(':')))];
 
+  // Helper to normalize strings for comparison (handle umlauts)
+  const normalizeForCompare = (s: string): string =>
+    s.toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
+      .trim();
+
   for (const categoryString of uniqueCategories) {
     const parts = categoryString.split(':');
     const groupName = parts[0]?.trim();
@@ -2240,17 +2247,17 @@ async function ensureCategoriesExist({
       continue;
     }
 
-    const groupKey = groupName.toUpperCase();
+    const groupKey = normalizeForCompare(groupName);
 
     // Check cache first (for groups created in this run)
     let group = groupCache.get(groupKey);
 
-    // If not in cache, check database
+    // If not in cache, check database (fetch all and compare normalized)
     if (!group) {
-      group = await db.first<{ id: string; name: string }>(
-        'SELECT id, name FROM category_groups WHERE UPPER(name) = ? AND tombstone = 0',
-        [groupKey],
-      ) || undefined;
+      const allGroups = await db.all<{ id: string; name: string }>(
+        'SELECT id, name FROM category_groups WHERE tombstone = 0',
+      );
+      group = allGroups.find(g => normalizeForCompare(g.name) === groupKey);
     }
 
     // Create group if it doesn't exist
@@ -2270,11 +2277,13 @@ async function ensureCategoriesExist({
       groupCache.set(groupKey, group);
     }
 
-    // Check if category exists under this group
-    const existingCategory = await db.first<{ id: string }>(
-      'SELECT id FROM categories WHERE cat_group = ? AND UPPER(name) = ? AND tombstone = 0',
-      [group.id, categoryName.toUpperCase()],
+    // Check if category exists under this group (normalized comparison for umlauts)
+    const categoryKey = normalizeForCompare(categoryName);
+    const allCategoriesInGroup = await db.all<{ id: string; name: string }>(
+      'SELECT id, name FROM categories WHERE cat_group = ? AND tombstone = 0',
+      [group.id],
     );
+    const existingCategory = allCategoriesInGroup.find(c => normalizeForCompare(c.name) === categoryKey);
 
     // Create category if it doesn't exist
     if (!existingCategory) {
