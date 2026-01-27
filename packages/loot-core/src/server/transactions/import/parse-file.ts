@@ -752,6 +752,11 @@ async function parseRevolutCSV(
     // They should roughly match after conversion to CHF
   }
 
+  // Remove exchange_timestamp from all transactions (it's not a DB field)
+  for (const txn of transactions) {
+    delete (txn as { exchange_timestamp?: string }).exchange_timestamp;
+  }
+
   // Collect unique currencies found
   const currencies = [
     ...new Set(
