@@ -174,7 +174,7 @@ export function YearlyBudgetPlannerTable({
     return {
       totalIncome,
       totalExpenses,
-      netAmount: totalIncome - totalExpenses,
+      netAmount: totalIncome + totalExpenses,
     };
   }, [data.incomeGroups, data.expenseGroups, getGroupTotal]);
 
@@ -536,7 +536,7 @@ export function YearlyBudgetPlannerTable({
                 (sum, g) => sum + getGroupMonthTotal(g, month),
                 0,
               );
-              const netTotal = incomeTotal - expenseTotal;
+              const netTotal = incomeTotal + expenseTotal;
               return (
                 <Cell
                   key={month}
