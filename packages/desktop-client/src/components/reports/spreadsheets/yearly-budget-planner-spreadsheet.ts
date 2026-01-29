@@ -66,7 +66,7 @@ export async function loadYearlyBudgetPlannerData({
   const lastYearEnd = `${lastYear}-12-31`;
 
   // Query budget data for the selected year
-  const budgetQuery = q('zero_budgets')
+  const budgetQuery = q('reflect_budgets')
     .filter({
       $and: [{ month: { $gte: startMonth } }, { month: { $lte: endMonth } }],
     })
@@ -117,12 +117,15 @@ export async function loadYearlyBudgetPlannerData({
   }
 
   // Create a map of category -> last year amount
-  // Keep amounts as stored: income positive, expense negative
+  // Transactions: income positive, expenses negative
+  // Display: all positive → negate expenses
   const lastYearMap = new Map<string, number>();
   for (const item of lastYearData) {
     if (item.category) {
+      const isIncome = incomeCategoryIds.has(item.category);
       const amount = item.amount || 0;
-      lastYearMap.set(item.category, amount);
+      const displayAmount = isIncome ? amount : -amount;
+      lastYearMap.set(item.category, displayAmount);
     }
   }
 
@@ -206,9 +209,9 @@ export async function loadYearlyBudgetPlannerData({
     months,
     totalIncome,
     totalExpenses,
-    netAmount: totalIncome + totalExpenses,
+    netAmount: totalIncome - totalExpenses,
     lastYearTotalIncome,
     lastYearTotalExpenses,
-    lastYearNetAmount: lastYearTotalIncome + lastYearTotalExpenses,
+    lastYearNetAmount: lastYearTotalIncome - lastYearTotalExpenses,
   };
 }

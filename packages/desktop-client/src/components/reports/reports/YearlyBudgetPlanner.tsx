@@ -169,27 +169,14 @@ export function YearlyBudgetPlanner() {
 
     setSaving(true);
     try {
-      // Build income category ID set
-      const incomeCategoryIds = new Set<string>();
-      for (const group of categories.grouped) {
-        if (group.is_income) {
-          for (const cat of group.categories || []) {
-            incomeCategoryIds.add(cat.id);
-          }
-        }
-      }
-
-      // Save all edited budgets with transformation
-      // User enters positive, we store: income negative, expense positive
+      // Save all edited budgets directly
+      // Tracking budget stores all amounts as positive
       for (const [categoryId, months] of Object.entries(editedBudgets)) {
-        const isIncome = incomeCategoryIds.has(categoryId);
-        for (const [month, displayAmount] of Object.entries(months)) {
-          // Transform for storage: income negated, expense kept
-          const storageAmount = isIncome ? -displayAmount : displayAmount;
+        for (const [month, amount] of Object.entries(months)) {
           await send('budget/budget-amount', {
             month,
             category: categoryId,
-            amount: storageAmount,
+            amount,
           });
         }
       }
