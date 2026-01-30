@@ -107,7 +107,7 @@ export function createBudgetVsActualSpreadsheet({
     const endMonthInt = parseInt(monthUtils.getMonth(endDate).replace('-', ''));
 
     // Query budget data - get per-month data (not aggregated)
-    const budgetQuery = q('zero_budgets')
+    const budgetQuery = q('reflect_budgets')
       .filter({
         $and: [
           { month: { $gte: startMonthInt } },
@@ -148,20 +148,10 @@ export function createBudgetVsActualSpreadsheet({
       aqlQuery(actualQuery).then(({ data }) => data),
     ]);
 
-    // Build a set of income category IDs for quick lookup
-    const incomeCategoryIds = new Set<string>();
-    for (const group of categories.grouped) {
-      if (group.is_income) {
-        for (const cat of group.categories || []) {
-          incomeCategoryIds.add(cat.id);
-        }
-      }
-    }
-
     // Create nested maps: category -> month -> amount
-    // Transform for display: all positive numbers
-    // 1. Income: negate budget (stored negative), keep actual (stored positive)
-    // 2. Expense: keep budget (stored positive), negate actual (stored negative)
+    // Tracking budget (reflect_budgets): all budgets stored as positive
+    // Transactions: income positive, expenses negative
+    // No sign transformations needed
     const budgetMap = new Map<string, Map<string, number>>();
     for (const item of budgetResult) {
       if (item.category) {
@@ -171,12 +161,7 @@ export function createBudgetVsActualSpreadsheet({
         // Convert YYYYMM to YYYY-MM
         const monthStr = String(item.month);
         const formattedMonth = `${monthStr.slice(0, 4)}-${monthStr.slice(4)}`;
-        const isIncome = incomeCategoryIds.has(item.category);
-        const amount = item.amount || 0;
-        // Income: negate (stored negative → display positive)
-        // Expense: keep as-is (stored positive → display positive)
-        const displayAmount = isIncome ? -amount : amount;
-        budgetMap.get(item.category)!.set(formattedMonth, displayAmount);
+        budgetMap.get(item.category)!.set(formattedMonth, item.amount || 0);
       }
     }
 
@@ -186,12 +171,7 @@ export function createBudgetVsActualSpreadsheet({
         if (!actualMap.has(item.category)) {
           actualMap.set(item.category, new Map());
         }
-        const isIncome = incomeCategoryIds.has(item.category);
-        const amount = item.amount || 0;
-        // Income: keep as-is (stored positive → display positive)
-        // Expense: negate (stored negative → display positive)
-        const displayAmount = isIncome ? amount : -amount;
-        actualMap.get(item.category)!.set(item.month, displayAmount);
+        actualMap.get(item.category)!.set(item.month, item.amount || 0);
       }
     }
 
@@ -256,10 +236,12 @@ export function createBudgetVsActualSpreadsheet({
           groupMonthlyData[month].actual += actual;
         }
 
-        // Variance = Actual - Budget (all display values are positive)
-        // For income: negative variance = earned less than expected (bad)
-        // For expense: positive variance = spent more than budget (bad)
-        const variance = categoryActual - categoryBudgeted;
+        // Variance: positive = good, negative = bad
+        // Income: actual - budget (earned more than expected = good)
+        // Expense: budget + actual (actual is negative, so remaining budget)
+        const variance = isIncomeGroup
+          ? categoryActual - categoryBudgeted
+          : categoryBudgeted + categoryActual;
 
         groupCategories.push({
           id: category.id,
@@ -276,8 +258,9 @@ export function createBudgetVsActualSpreadsheet({
 
       // Only include groups that have categories
       if (groupCategories.length > 0) {
-        // Variance = Actual - Budget
-        const groupVariance = groupActual - groupBudgeted;
+        const groupVariance = isIncomeGroup
+          ? groupActual - groupBudgeted
+          : groupBudgeted + groupActual;
 
         groups.push({
           id: group.id,
@@ -290,24 +273,22 @@ export function createBudgetVsActualSpreadsheet({
           categories: groupCategories,
         });
 
-        // For totals: Income adds, Expense subtracts
+        // Net totals: income budget adds, expense budget subtracts
+        // Actuals already have correct signs (income +, expense -)
         if (isIncomeGroup) {
           totalBudgeted += groupBudgeted;
-          totalActual += groupActual;
         } else {
           totalBudgeted -= groupBudgeted;
-          totalActual -= groupActual;
         }
+        totalActual += groupActual;
 
-        // Accumulate to total monthly data (income adds, expense subtracts)
         for (const month of months) {
           if (isIncomeGroup) {
             totalMonthlyData[month].budgeted += groupMonthlyData[month].budgeted;
-            totalMonthlyData[month].actual += groupMonthlyData[month].actual;
           } else {
             totalMonthlyData[month].budgeted -= groupMonthlyData[month].budgeted;
-            totalMonthlyData[month].actual -= groupMonthlyData[month].actual;
           }
+          totalMonthlyData[month].actual += groupMonthlyData[month].actual;
         }
       }
     }
