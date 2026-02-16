@@ -4,17 +4,24 @@ import { Trans } from 'react-i18next';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
-import { type CategoryEntity, type CategoryGroupEntity } from 'loot-core/types/models';
+import {
+  type CategoryEntity,
+  type CategoryGroupEntity,
+} from 'loot-core/types/models';
 
-import { Transaction } from '../Transaction';
-import { type DateFormat, type FieldMapping, type ImportTransaction } from '../utils';
+import { type TransactionCategoryMap } from '@desktop-client/components/modals/ImportTransactionsModal/hooks/useSwissBankImport';
+import { SwissTransaction } from '@desktop-client/components/modals/ImportTransactionsModal/SwissTransaction';
+import { Transaction } from '@desktop-client/components/modals/ImportTransactionsModal/Transaction';
+import {
+  type DateFormat,
+  type FieldMapping,
+  type ImportTransaction,
+} from '@desktop-client/components/modals/ImportTransactionsModal/utils';
 
 import {
   TableHeader,
   TableWithNavigator,
 } from '@desktop-client/components/table';
-
-import { type TransactionCategoryMap } from '../hooks/useSwissBankImport';
 
 export type TransactionListProps = {
   transactions: ImportTransaction[];
@@ -40,9 +47,15 @@ export type TransactionListProps = {
   onCheckTransaction: (transactionId: string) => void;
   // Swiss bank category/notes editing
   transactionCategories?: TransactionCategoryMap;
-  onTransactionCategoryChange?: (transactionId: string, category: string | null) => void;
+  onTransactionCategoryChange?: (
+    transactionId: string,
+    category: string | null,
+  ) => void;
   transactionNotes?: Map<string, string | null>;
-  onTransactionNotesChange?: (transactionId: string, notes: string | null) => void;
+  onTransactionNotesChange?: (
+    transactionId: string,
+    notes: string | null,
+  ) => void;
   // Headers configuration
   headers: ComponentProps<typeof TableHeader>['headers'];
 };
@@ -73,8 +86,7 @@ export function TransactionList({
 }: TransactionListProps) {
   const filteredTransactions = transactions.filter(
     trans =>
-      !trans.isMatchedTransaction ||
-      (trans.isMatchedTransaction && reconcile),
+      !trans.isMatchedTransaction || (trans.isMatchedTransaction && reconcile),
   );
 
   return (
@@ -108,29 +120,45 @@ export function TransactionList({
           const trans = item as unknown as ImportTransaction;
           return (
             <View>
-              <Transaction
-                transaction={trans}
-                showParsed={showParsed}
-                parseDateFormat={parseDateFormat}
-                dateFormat={dateFormat as DateFormat}
-                fieldMappings={fieldMappings}
-                splitMode={splitMode}
-                inOutMode={inOutMode}
-                outValue={outValue}
-                flipAmount={flipAmount}
-                multiplierAmount={multiplierAmount}
-                categories={categories}
-                categoryGroups={categoryGroups}
-                onCheckTransaction={onCheckTransaction}
-                reconcile={reconcile}
-                showStatus={showStatus}
-                showCurrency={showCurrency}
-                isSwissBankImport={isSwissBankImport}
-                selectedCategory={transactionCategories?.get(trans.trx_id)?.selectedCategory}
-                onCategoryChange={onTransactionCategoryChange}
-                editedNotes={transactionNotes?.get(trans.trx_id)}
-                onNotesChange={onTransactionNotesChange}
-              />
+              {isSwissBankImport ? (
+                <SwissTransaction
+                  transaction={trans}
+                  parseDateFormat={parseDateFormat}
+                  dateFormat={dateFormat as DateFormat}
+                  splitMode={splitMode}
+                  flipAmount={flipAmount}
+                  multiplierAmount={multiplierAmount}
+                  categories={categories}
+                  categoryGroups={categoryGroups}
+                  onCheckTransaction={onCheckTransaction}
+                  reconcile={reconcile}
+                  showStatus={showStatus}
+                  showCurrency={showCurrency}
+                  selectedCategory={
+                    transactionCategories?.get(trans.trx_id)?.selectedCategory
+                  }
+                  onCategoryChange={onTransactionCategoryChange}
+                  editedNotes={transactionNotes?.get(trans.trx_id)}
+                  onNotesChange={onTransactionNotesChange}
+                />
+              ) : (
+                <Transaction
+                  transaction={trans}
+                  showParsed={showParsed}
+                  parseDateFormat={parseDateFormat}
+                  dateFormat={dateFormat as DateFormat}
+                  fieldMappings={fieldMappings}
+                  splitMode={splitMode}
+                  inOutMode={inOutMode}
+                  outValue={outValue}
+                  flipAmount={flipAmount}
+                  multiplierAmount={multiplierAmount}
+                  categories={categories}
+                  onCheckTransaction={onCheckTransaction}
+                  reconcile={reconcile}
+                  showStatus={showStatus}
+                />
+              )}
             </View>
           );
         }}

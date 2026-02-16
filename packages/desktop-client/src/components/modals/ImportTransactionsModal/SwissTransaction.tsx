@@ -1,7 +1,8 @@
-import React, { useMemo, type ComponentProps } from 'react';
-import { useTranslation } from 'react-i18next';
+import React, { useCallback, useMemo, type ComponentProps } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
 
 import { SvgDownAndRightArrow } from '@actual-app/components/icons/v2';
+import { Select } from '@actual-app/components/select';
 import { SpaceBetween } from '@actual-app/components/space-between';
 import { styles } from '@actual-app/components/styles';
 import { theme } from '@actual-app/components/theme';
@@ -9,91 +10,97 @@ import { Tooltip } from '@actual-app/components/tooltip';
 import { View } from '@actual-app/components/view';
 
 import { amountToCurrency } from 'loot-core/shared/util';
-import { type CategoryEntity } from 'loot-core/types/models';
-
-import { ParsedDate } from './ParsedDate';
 import {
-  applyFieldMappings,
+  type CategoryEntity,
+  type CategoryGroupEntity,
+} from 'loot-core/types/models';
+
+import {
   formatDate,
   parseAmountFields,
-  type FieldMapping,
+  parseDate,
+  type DateFormat,
   type ImportTransaction,
 } from './utils';
 
 import { Checkbox } from '@desktop-client/components/forms';
 import { Field, Row } from '@desktop-client/components/table';
 
-type TransactionProps = {
+type SwissTransactionProps = {
   transaction: ImportTransaction;
-  fieldMappings: FieldMapping;
-  showParsed: boolean;
-  parseDateFormat: ComponentProps<typeof ParsedDate>['parseDateFormat'];
-  dateFormat: ComponentProps<typeof ParsedDate>['dateFormat'];
+  parseDateFormat?: DateFormat;
+  dateFormat: DateFormat;
   splitMode: boolean;
-  inOutMode: boolean;
-  outValue: string;
   flipAmount: boolean;
   multiplierAmount: string;
   categories: CategoryEntity[];
+  categoryGroups: CategoryGroupEntity[];
   onCheckTransaction: (transactionId: string) => void;
   reconcile: boolean;
   showStatus?: boolean;
+  showCurrency?: boolean;
+  selectedCategory?: string | null;
+  onCategoryChange?: (transactionId: string, category: string | null) => void;
+  editedNotes?: string | null;
+  onNotesChange?: (transactionId: string, notes: string | null) => void;
 };
 
-export function Transaction({
-  transaction: rawTransaction,
-  fieldMappings,
-  showParsed,
+export function SwissTransaction({
+  transaction,
   parseDateFormat,
   dateFormat,
   splitMode,
-  inOutMode,
-  outValue,
   flipAmount,
   multiplierAmount,
   categories,
+  categoryGroups,
   onCheckTransaction,
   reconcile,
   showStatus = false,
-}: TransactionProps) {
+  showCurrency = false,
+  selectedCategory,
+  onCategoryChange,
+  editedNotes,
+  onNotesChange,
+}: SwissTransactionProps) {
   const { t } = useTranslation();
 
-  const transaction = useMemo(
-    () =>
-      fieldMappings && !rawTransaction.isMatchedTransaction
-        ? applyFieldMappings(rawTransaction, fieldMappings)
-        : rawTransaction,
-    [rawTransaction, fieldMappings],
+  const getCategoryDisplayName = useCallback(
+    (categoryId: string | undefined) => {
+      if (!categoryId) return null;
+
+      if (categoryId.includes(':')) {
+        return categoryId;
+      }
+
+      const category = categories.find(c => c.id === categoryId);
+      if (category) {
+        const group = categoryGroups.find(g =>
+          g.categories?.some(cat => cat.id === categoryId),
+        );
+        if (group) {
+          return `${group.name}:${category.name}`;
+        }
+        return category.name;
+      }
+
+      return null;
+    },
+    [categories, categoryGroups],
   );
 
-  const { amount, outflow, inflow } = useMemo(() => {
-    if (rawTransaction.isMatchedTransaction) {
-      const amount = rawTransaction.amount;
-
-      return {
-        amount,
-        outflow: splitMode ? (amount < 0 ? -amount : 0) : null,
-        inflow: splitMode ? (amount > 0 ? amount : 0) : null,
-      };
-    }
-
-    return parseAmountFields(
-      transaction,
-      splitMode,
-      inOutMode,
-      outValue,
-      flipAmount,
-      multiplierAmount,
-    );
-  }, [
-    rawTransaction,
-    transaction,
-    splitMode,
-    inOutMode,
-    outValue,
-    flipAmount,
-    multiplierAmount,
-  ]);
+  const { amount, outflow, inflow } = useMemo(
+    () =>
+      parseAmountFields(
+        transaction,
+        splitMode,
+        false, // inOutMode
+        '', // outValue
+        flipAmount,
+        multiplierAmount,
+      ),
+    [transaction, splitMode, flipAmount, multiplierAmount],
+  );
 
   return (
     <Row
@@ -198,14 +205,15 @@ export function Transaction({
               <View>{formatDate(transaction.date ?? null, dateFormat)}</View>
             </SpaceBetween>
           </View>
-        ) : showParsed ? (
-          <ParsedDate
-            parseDateFormat={parseDateFormat}
-            dateFormat={dateFormat}
-            date={transaction.date}
-          />
         ) : (
-          formatDate(transaction.date ?? null, dateFormat)
+          <View style={{ color: theme.noticeTextLight }}>
+            {formatDate(
+              parseDateFormat
+                ? parseDate(transaction.date ?? '', parseDateFormat)
+                : (transaction.date ?? null),
+              dateFormat,
+            )}
+          </View>
         )}
       </Field>
       <Field
@@ -214,11 +222,108 @@ export function Transaction({
       >
         {transaction.payee_name}
       </Field>
-      <Field width={250} title={transaction.notes}>
-        {transaction.notes}
+      {showCurrency && (
+        <Field
+          width={60}
+          contentStyle={{
+            textAlign: 'center',
+            fontWeight: 500,
+            fontSize: '0.85em',
+          }}
+        >
+          {(transaction as { currency?: string }).currency || 'CHF'}
+        </Field>
+      )}
+      <Field width={250} title={editedNotes ?? transaction.notes}>
+        {!transaction.isMatchedTransaction ? (
+          <textarea
+            value={editedNotes ?? transaction.notes ?? ''}
+            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+              onNotesChange?.(transaction.trx_id, e.target.value || null);
+            }}
+            rows={2}
+            style={{
+              fontSize: '0.85em',
+              padding: '2px 4px',
+              width: '100%',
+              resize: 'none',
+              border: '1px solid ' + theme.tableBorder,
+              borderRadius: 4,
+              fontFamily: 'inherit',
+            }}
+          />
+        ) : (
+          (editedNotes ?? transaction.notes)
+        )}
       </Field>
-      <Field width={200} title={transaction.category || undefined}>
-        {transaction.category}
+      <Field
+        width={200}
+        title={
+          selectedCategory ||
+          getCategoryDisplayName(transaction.category) ||
+          undefined
+        }
+      >
+        {['swift_transfer', 'atm', 'exchange'].includes(
+          (transaction as { transaction_type?: string }).transaction_type || '',
+        ) ? (
+          <View
+            style={{
+              color: theme.pageTextSubdued,
+              fontStyle: 'italic',
+              fontSize: '0.85em',
+            }}
+          >
+            <Trans>Transfer</Trans>
+          </View>
+        ) : !transaction.isMatchedTransaction ? (
+          <Select
+            value={
+              selectedCategory ||
+              getCategoryDisplayName(transaction.category) ||
+              ''
+            }
+            onChange={(value: string) => {
+              onCategoryChange?.(transaction.trx_id, value || null);
+            }}
+            options={[
+              ['', t('Select category...')],
+              ...categoryGroups
+                .flatMap(group =>
+                  (group.categories || []).map(cat => {
+                    const fullName = `${group.name}:${cat.name}`;
+                    return [fullName, fullName] as [string, string];
+                  }),
+                )
+                .sort((a, b) => a[0].localeCompare(b[0])),
+            ]}
+            style={{
+              fontSize: '0.85em',
+              padding: '4px 6px',
+              minHeight: 32,
+              width: '100%',
+              backgroundColor:
+                !selectedCategory &&
+                !getCategoryDisplayName(transaction.category)
+                  ? theme.errorBackground
+                  : theme.tableBackground,
+              border:
+                '1px solid ' +
+                (!selectedCategory &&
+                !getCategoryDisplayName(transaction.category)
+                  ? theme.errorBorder
+                  : theme.tableBorder),
+              borderRadius: 4,
+              color:
+                !selectedCategory &&
+                !getCategoryDisplayName(transaction.category)
+                  ? theme.errorText
+                  : undefined,
+            }}
+          />
+        ) : (
+          selectedCategory || getCategoryDisplayName(transaction.category)
+        )}
       </Field>
       {showStatus && !transaction.isMatchedTransaction && (
         <Field
@@ -227,38 +332,18 @@ export function Transaction({
             textAlign: 'center',
             fontWeight: 500,
             fontSize: '0.85em',
-            color: transaction.ignored
-              ? theme.errorText
-              : transaction.existing
+            color:
+              transaction.ignored || transaction.existing
                 ? theme.warningText
                 : theme.noticeText,
           }}
           title={
-            transaction.ignored
-              ? t('Already imported - will be skipped')
-              : transaction.existing
-                ? t('Will update existing transaction')
-                : t('New transaction')
+            transaction.ignored || transaction.existing
+              ? t('Already in database')
+              : t('New transaction')
           }
         >
-          {transaction.ignored
-            ? t('Skip')
-            : transaction.existing
-              ? t('Update')
-              : t('New')}
-        </Field>
-      )}
-      {inOutMode && (
-        <Field
-          width={90}
-          contentStyle={{ textAlign: 'left', ...styles.tnum }}
-          title={
-            transaction.inOut === undefined
-              ? undefined
-              : String(transaction.inOut)
-          }
-        >
-          {transaction.inOut}
+          {transaction.ignored || transaction.existing ? 'vorhanden' : 'neu'}
         </Field>
       )}
       {splitMode ? (
