@@ -16,10 +16,7 @@ import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
 import { send } from 'loot-core/platform/client/fetch';
-import {
-  type ParseFileOptions,
-  type SwissBankFormat,
-} from 'loot-core/server/transactions/import/parse-file';
+import { type ParseFileOptions } from 'loot-core/server/transactions/import/parse-file';
 import { amountToInteger } from 'loot-core/shared/util';
 
 import { DateFormatSelect } from './DateFormatSelect';
@@ -40,9 +37,7 @@ import {
 } from './utils';
 
 import {
-  importMigrosTransactions,
   importPreviewTransactions,
-  importRevolutTransactions,
   importTransactions,
 } from '@desktop-client/accounts/accountsSlice';
 import {
@@ -56,37 +51,11 @@ import {
   TableHeader,
   TableWithNavigator,
 } from '@desktop-client/components/table';
-import { useAccounts } from '@desktop-client/hooks/useAccounts';
 import { useCategories } from '@desktop-client/hooks/useCategories';
 import { useDateFormat } from '@desktop-client/hooks/useDateFormat';
 import { useSyncedPrefs } from '@desktop-client/hooks/useSyncedPrefs';
-import { pushModal } from '@desktop-client/modals/modalsSlice';
 import { reloadPayees } from '@desktop-client/payees/payeesSlice';
 import { useDispatch } from '@desktop-client/redux';
-
-type ImportSettings = {
-  migros_account: string;
-  revolut_bank_account: string;
-  cash_account: string;
-  revolut_differenz_category: string;
-};
-
-const DEFAULT_IMPORT_SETTINGS: ImportSettings = {
-  migros_account: '',
-  revolut_bank_account: '',
-  cash_account: '',
-  revolut_differenz_category: '',
-};
-
-// Transaction category selection for Swiss bank imports
-// Maps transaction ID -> selected category
-type TransactionCategoryMap = Map<string, {
-  selectedCategory: string | null;
-  proposedCategory: string | null;
-  hasMatch: boolean;
-  payee: string;
-  isExpense: boolean;
-}>;
 
 function getFileType(filepath: string): string {
   const m = filepath.match(/\.([^.]*)$/);
@@ -199,7 +168,6 @@ export function ImportTransactionsModal({
   const [prefs, savePrefs] = useSyncedPrefs();
   const dispatch = useDispatch();
   const categories = useCategories();
-  const accounts = useAccounts();
 
   const [multiplierAmount, setMultiplierAmount] = useState('');
   const [loadingState, setLoadingState] = useState<
@@ -221,31 +189,6 @@ export function ImportTransactionsModal({
   const [multiplierEnabled, setMultiplierEnabled] = useState(false);
   const [reconcile, setReconcile] = useState(true);
   const [importNotes, setImportNotes] = useState(true);
-  // Track if this is a Revolut multi-currency import
-  const [isRevolutImport, setIsRevolutImport] = useState(false);
-  // Track if this is a Migros import
-  const [isMigrosImport, setIsMigrosImport] = useState(false);
-  // Track if this is a Swiss bank import (Migros or Revolut) - hide CSV options
-  const [isSwissBankImport, setIsSwissBankImport] = useState(false);
-  // Effective account ID for duplicate detection (may differ from accountId for Swiss bank imports)
-  const [previewAccountId, setPreviewAccountId] = useState<string>(accountId);
-  // Import settings for Swiss bank imports
-  const [showSettingsDialog, setShowSettingsDialog] = useState(false);
-  const [importSettings, setImportSettings] = useState<ImportSettings>(DEFAULT_IMPORT_SETTINGS);
-  // Category selection for Swiss bank imports (per transaction)
-  const [transactionCategories, setTransactionCategories] = useState<TransactionCategoryMap>(new Map());
-  // Notes editing for Swiss bank imports (per transaction)
-  const [transactionNotes, setTransactionNotes] = useState<Map<string, string | null>>(new Map());
-  // Current Revolut total for balance correction (in CHF, as string for input)
-  const [currentRevolutTotal, setCurrentRevolutTotal] = useState<string>('');
-  // Category prompt for Revolut balance correction
-  const [showCategoryPrompt, setShowCategoryPrompt] = useState(false);
-  const [pendingBalanceCorrection, setPendingBalanceCorrection] = useState<{
-    difference: number;
-    expectedBalance: number;
-    accountBalance: number;
-  } | null>(null);
-  const [selectedDifferenzCategory, setSelectedDifferenzCategory] = useState<string>('');
 
   // This cannot be set after parsing the file, because changing it
   // requires re-parsing the file. This is different from the other
@@ -370,58 +313,26 @@ export function ImportTransactionsModal({
       }
 
       // Retrieve the transactions that would be updated (along with the existing trx)
-      // For Revolut multi-currency imports, check each transaction against its respective currency account
-      let matchedUpdateMap: Record<string, { transaction: unknown; existing?: unknown; ignored?: boolean; tombstone?: boolean }> = {};
-
-      if (isRevolutImport) {
-        // Group transactions by currency
-        const byCurrency = new Map<string, typeof previewTransactions>();
-        for (const trans of previewTransactions) {
-          const currency = (trans as { currency?: string }).currency || 'CHF';
-          if (!byCurrency.has(currency)) {
-            byCurrency.set(currency, []);
-          }
-          byCurrency.get(currency)!.push(trans);
+      const matchedUpdateMap: Record<
+        string,
+        {
+          transaction: unknown;
+          existing?: unknown;
+          ignored?: boolean;
+          tombstone?: boolean;
         }
+      > = {};
 
-        // For each currency, find the account and check for duplicates
-        for (const [currency, currencyTransactions] of byCurrency) {
-          const accountName = `Revolut ${currency.toUpperCase()}`;
-          const currencyAccount = accounts.find(a => a.name === accountName && !a.closed);
+      const previewTrx = await dispatch(
+        importPreviewTransactions({
+          accountId,
+          transactions: previewTransactions,
+        }),
+      ).unwrap();
 
-          if (currencyAccount) {
-            const previewTrx = await dispatch(
-              importPreviewTransactions({
-                accountId: currencyAccount.id,
-                transactions: currencyTransactions,
-              }),
-            ).unwrap();
-
-            for (const entry of previewTrx) {
-              // @ts-expect-error - entry.transaction might not have trx_id property
-              matchedUpdateMap[entry.transaction.trx_id] = entry;
-            }
-          } else {
-            // Account doesn't exist yet, all transactions are new
-            for (const trans of currencyTransactions) {
-              // @ts-expect-error - trans might not have trx_id property
-              matchedUpdateMap[trans.trx_id] = { transaction: trans, existing: undefined, ignored: false };
-            }
-          }
-        }
-      } else {
-        // Standard single-account preview
-        const previewTrx = await dispatch(
-          importPreviewTransactions({
-            accountId: previewAccountId,
-            transactions: previewTransactions,
-          }),
-        ).unwrap();
-
-        for (const entry of previewTrx) {
-          // @ts-expect-error - entry.transaction might not have trx_id property
-          matchedUpdateMap[entry.transaction.trx_id] = entry;
-        }
+      for (const entry of previewTrx) {
+        // @ts-expect-error - entry.transaction might not have trx_id property
+        matchedUpdateMap[entry.transaction.trx_id] = entry;
       }
 
       return transactions
@@ -444,9 +355,7 @@ export function ImportTransactionsModal({
 
           next = next.concat({ ...current_trx });
 
-          // For Swiss bank imports, do NOT add a second row for matched transactions
-          // Instead, just show status "vorhanden" in the single row
-          if (existing_trx && !isSwissBankImport) {
+          if (existing_trx) {
             // add the updated existing transaction in the list, with the
             // isMatchedTransaction flag to identify it in display and not send it again
             existing_trx.isMatchedTransaction = true;
@@ -465,7 +374,7 @@ export function ImportTransactionsModal({
           return next;
         }, []);
     },
-    [previewAccountId, categories.list, clearOnImport, dispatch, isRevolutImport, isSwissBankImport, accounts],
+    [accountId, categories.list, clearOnImport, dispatch],
   );
 
   const parse = useCallback(
@@ -476,52 +385,13 @@ export function ImportTransactionsModal({
       setFilename(filename);
       setFileType(filetype);
 
-      const { errors, transactions: parsedTransactions = [], metadata } = await send(
+      const { errors, transactions: parsedTransactions = [] } = await send(
         'transactions-parse-file',
         {
           filepath: filename,
           options,
         },
       );
-
-      // Detect Swiss bank format (Migros or Revolut) from metadata
-      const swissBankFormat = metadata?.bankFormat;
-      setIsSwissBankImport(!!swissBankFormat);
-      setIsMigrosImport(swissBankFormat === 'migros');
-      setIsRevolutImport(swissBankFormat === 'revolut');
-
-      // Fetch import settings for Swiss bank imports
-      if (swissBankFormat) {
-        const settings = await send('swiss-bank-get-import-settings');
-        setImportSettings(settings);
-        // Initialize differenz category from settings if available
-        if (settings.revolut_differenz_category) {
-          setSelectedDifferenzCategory(settings.revolut_differenz_category);
-        }
-        // Show settings dialog if required accounts not configured
-        if (swissBankFormat === 'migros' && !settings.migros_account) {
-          setShowSettingsDialog(true);
-        } else if (swissBankFormat === 'revolut' && !settings.revolut_bank_account) {
-          setShowSettingsDialog(true);
-        }
-
-        // Set the correct account for duplicate detection
-        // For Migros imports, use the configured Migros account
-        // For Revolut imports, use Revolut CHF account
-        let targetAccountName: string | null = null;
-        if (swissBankFormat === 'migros' && settings.migros_account) {
-          targetAccountName = settings.migros_account;
-        } else if (swissBankFormat === 'revolut') {
-          targetAccountName = 'Revolut CHF';
-        }
-
-        if (targetAccountName) {
-          const targetAccount = accounts.find(a => a.name === targetAccountName && !a.closed);
-          if (targetAccount) {
-            setPreviewAccountId(targetAccount.id);
-          }
-        }
-      }
 
       let index = 0;
       const transactions = parsedTransactions.map(trans => {
@@ -533,42 +403,6 @@ export function ImportTransactionsModal({
         trans.selected = true;
         return trans;
       });
-
-      // Check if payee mapping is empty and offer to learn from existing transactions
-      // Mapping structure is Record<payeeName, { expense?: string; income?: string }>
-      if (swissBankFormat && transactions.length > 0) {
-        const existingMapping = await send('swiss-bank-get-payee-mapping', {});
-        const mappingIsEmpty = !existingMapping || Object.keys(existingMapping).length === 0;
-
-        if (mappingIsEmpty) {
-          // Store transactions first, then show the learn categories modal
-          setTransactions(transactions);
-          setLoadingState(null);
-
-          // Push the learn categories modal - it will call back when done
-          dispatch(pushModal({
-            modal: {
-              name: 'learn-categories',
-              options: {
-                onLearn: () => {
-                  // After learning, fetch category suggestions
-                  fetchCategorySuggestionsForTransactions(transactions);
-                },
-                onSkip: () => {
-                  // User skipped, continue without categories
-                  fetchCategorySuggestionsForTransactions(transactions);
-                },
-              },
-            },
-          }));
-          return;
-        }
-      }
-
-      // Fetch proposed categories for Swiss bank imports (after transactions have IDs)
-      if (swissBankFormat && transactions.length > 0) {
-        await fetchCategorySuggestionsForTransactions(transactions);
-      }
 
       setError(null);
 
@@ -755,99 +589,7 @@ export function ImportTransactionsModal({
     setTransactions(newTransactions);
   }
 
-  // Handle category change for Swiss bank imports
-  function onTransactionCategoryChange(transactionId: string, category: string | null) {
-    setTransactionCategories(prev => {
-      const newMap = new Map(prev);
-      const existing = newMap.get(transactionId);
-      if (existing) {
-        newMap.set(transactionId, { ...existing, selectedCategory: category });
-      }
-      return newMap;
-    });
-  }
-
-  // Handle notes change for Swiss bank imports
-  function onTransactionNotesChange(transactionId: string, notes: string | null) {
-    setTransactionNotes(prev => {
-      const newMap = new Map(prev);
-      newMap.set(transactionId, notes);
-      return newMap;
-    });
-  }
-
-  // Fetch and apply category suggestions to transactions (used after learn modal closes)
-  async function fetchCategorySuggestionsForTransactions(transactionsToProcess: ImportTransaction[]) {
-    if (transactionsToProcess.length === 0) {
-      console.log('No transactions to apply categories to');
-      return;
-    }
-
-    // Get unique payees with their amounts from current transactions
-    const payeeAmounts = new Map<string, number>();
-    for (const trans of transactionsToProcess) {
-      const payee = (trans as ImportTransaction & { payee_name?: string; imported_payee?: string }).payee_name ||
-        (trans as ImportTransaction & { imported_payee?: string }).imported_payee ||
-        trans.payee || '';
-      const amount = typeof trans.amount === 'number' ? trans.amount : 0;
-      if (payee && !payeeAmounts.has(payee)) {
-        payeeAmounts.set(payee, amount);
-      }
-    }
-
-    // Call API to get proposed categories using the mapping
-    const payeeInputs = Array.from(payeeAmounts.entries()).map(([payee, amount]) => ({
-      payee,
-      amount,
-    }));
-    const matchResults = await send('swiss-bank-match-payees', { payees: payeeInputs });
-
-    // Create a map of payee -> match result for quick lookup
-    const payeeMatchMap = new Map<string, {
-      proposedCategory: string | null;
-      hasMatch: boolean;
-      isExpense: boolean;
-    }>();
-    for (const result of matchResults) {
-      payeeMatchMap.set(result.payee, {
-        proposedCategory: result.proposedCategory,
-        hasMatch: result.hasMatch,
-        isExpense: result.isExpense,
-      });
-    }
-
-    // Create per-transaction category map
-    const categoryMap: TransactionCategoryMap = new Map();
-    for (const trans of transactionsToProcess) {
-      const payee = (trans as ImportTransaction & { payee_name?: string; imported_payee?: string }).payee_name ||
-        (trans as ImportTransaction & { imported_payee?: string }).imported_payee ||
-        trans.payee || '';
-      const trxId = (trans as ImportTransaction & { trx_id: string }).trx_id;
-      const match = payeeMatchMap.get(payee);
-
-      categoryMap.set(trxId, {
-        selectedCategory: match?.proposedCategory || null,
-        proposedCategory: match?.proposedCategory || null,
-        hasMatch: match?.hasMatch || false,
-        payee,
-        isExpense: match?.isExpense ?? true,
-      });
-    }
-    setTransactionCategories(categoryMap);
-    console.log(`Applied ${categoryMap.size} category suggestions to transactions`);
-  }
-
   async function onImport(close) {
-    // Validate: Require "Current Revolut Total" for Revolut imports
-    if (isRevolutImport && !currentRevolutTotal.trim()) {
-      setError({
-        parsed: true,
-        message: t('Please enter the "Current Revolut Total (CHF)" before importing.'),
-      });
-      setLoadingState(null);
-      return;
-    }
-
     setLoadingState('importing');
 
     const finalTransactions = [];
@@ -864,13 +606,10 @@ export function ImportTransactionsModal({
         continue;
       }
 
-      // Swiss bank imports are already properly structured by the parser
-      // Don't apply field mappings as it would strip important fields (imported_id, currency, etc.)
-      trans = fieldMappings && !isSwissBankImport ? applyFieldMappings(trans, fieldMappings) : trans;
+      trans = fieldMappings ? applyFieldMappings(trans, fieldMappings) : trans;
 
-      // Swiss bank imports already have dates in YYYY-MM-DD format, skip re-parsing
       const date =
-        isOfxFile(filetype) || isCamtFile(filetype) || isSwissBankImport
+        isOfxFile(filetype) || isCamtFile(filetype)
           ? trans.date
           : parseDate(trans.date, parseDateFormat);
       if (date == null) {
@@ -896,26 +635,7 @@ export function ImportTransactionsModal({
         break;
       }
 
-      let category_id = parseCategoryFields(trans, categories.list);
-
-      // For Swiss bank imports, apply user-selected category from inline dropdown
-      if (isSwissBankImport && transactionCategories.size > 0) {
-        const catInfo = transactionCategories.get(trans.trx_id);
-        if (catInfo?.selectedCategory) {
-          // Parse "Group:Category" and find the category ID
-          const [groupName, catName] = catInfo.selectedCategory.split(':');
-          if (groupName && catName) {
-            const group = categories.grouped.find(g => g.name === groupName);
-            if (group) {
-              const cat = group.categories?.find(c => c.name === catName);
-              if (cat) {
-                category_id = cat.id;
-              }
-            }
-          }
-        }
-      }
-
+      const category_id = parseCategoryFields(trans, categories.list);
       trans.category = category_id;
 
       const {
@@ -941,18 +661,12 @@ export function ImportTransactionsModal({
         finalTransaction.forceAddTransaction = true;
       }
 
-      // For Swiss bank imports, use edited notes from transactionNotes state if available
-      const editedNotes = transactionNotes.get(trans.trx_id);
-      const finalNotes = importNotes
-        ? (editedNotes !== undefined ? editedNotes : finalTransaction.notes)
-        : null;
-
       finalTransactions.push({
         ...finalTransaction,
         date,
         amount: amountToInteger(amount),
         cleared: clearOnImport,
-        notes: finalNotes,
+        notes: importNotes ? finalTransaction.notes : null,
       });
     }
 
@@ -996,175 +710,21 @@ export function ImportTransactionsModal({
       });
     }
 
-    let didChange: boolean;
-
-    if (isRevolutImport) {
-      // Use Revolut multi-currency handler
-      // Routes to currency-specific accounts (Revolut, Revolut EUR, etc.)
-      didChange = await dispatch(
-        importRevolutTransactions({
-          transactions: finalTransactions,
-        }),
-      ).unwrap();
-    } else if (isMigrosImport) {
-      // Use Migros handler - routes to configured account from import_settings.json
-      // Collect payee-category mappings BEFORE closing (access state while component is still mounted)
-      const payeeMappingsToSave: Array<{ payee: string; category: string; isExpense: boolean }> = [];
-      if (transactionCategories.size > 0) {
-        const payeeMappings = new Map<string, { category: string; isExpense: boolean }>();
-        for (const catInfo of transactionCategories.values()) {
-          // Save mapping if:
-          // - New payee (no existing match), OR
-          // - User changed the category from the proposed one
-          const isNewPayee = !catInfo.hasMatch;
-          const categoryChanged = catInfo.selectedCategory !== catInfo.proposedCategory;
-          if (catInfo.selectedCategory && catInfo.payee && (isNewPayee || categoryChanged)) {
-            if (!payeeMappings.has(catInfo.payee)) {
-              payeeMappings.set(catInfo.payee, {
-                category: catInfo.selectedCategory,
-                isExpense: catInfo.isExpense,
-              });
-            }
-          }
-        }
-        if (payeeMappings.size > 0) {
-          payeeMappingsToSave.push(...Array.from(payeeMappings.entries()).map(([payee, info]) => ({
-            payee,
-            category: info.category,
-            isExpense: info.isExpense,
-          })));
-        }
-      }
-
-      // Close the import modal BEFORE dispatching so the summary modal becomes topmost
-      close();
-
-      // Now run async operations (don't access component state after close)
-      didChange = await dispatch(
-        importMigrosTransactions({
-          transactions: finalTransactions,
-        }),
-      ).unwrap();
-
-      if (didChange) {
-        await dispatch(reloadPayees());
-      }
-
-      // Save payee-category mappings (using pre-collected data)
-      if (payeeMappingsToSave.length > 0) {
-        await send('swiss-bank-add-payee-mappings', { newMappings: payeeMappingsToSave });
-      }
-
-      // Reset loading state and notify
-      setLoadingState(null);
-      if (onImported) {
-        onImported(didChange);
-      }
-      return;
-    } else {
-      // Use standard single-account import (for non-Swiss bank formats)
-      didChange = await dispatch(
-        importTransactions({
-          accountId,
-          transactions: finalTransactions,
-          reconcile,
-        }),
-      ).unwrap();
-    }
+    const didChange = await dispatch(
+      importTransactions({
+        accountId,
+        transactions: finalTransactions,
+        reconcile,
+      }),
+    ).unwrap();
 
     if (didChange) {
       await dispatch(reloadPayees());
     }
 
-    // Save payee-category mappings for new payees or changed categories
-    if (isSwissBankImport && transactionCategories.size > 0) {
-      // Collect unique payee mappings (deduplicate by payee name)
-      const payeeMappings = new Map<string, { category: string; isExpense: boolean }>();
-
-      for (const catInfo of transactionCategories.values()) {
-        // Save mapping if:
-        // - New payee (no existing match), OR
-        // - User changed the category from the proposed one
-        const isNewPayee = !catInfo.hasMatch;
-        const categoryChanged = catInfo.selectedCategory !== catInfo.proposedCategory;
-        if (catInfo.selectedCategory && catInfo.payee && (isNewPayee || categoryChanged)) {
-          // Only add if not already in map (first occurrence wins)
-          if (!payeeMappings.has(catInfo.payee)) {
-            payeeMappings.set(catInfo.payee, {
-              category: catInfo.selectedCategory,
-              isExpense: catInfo.isExpense,
-            });
-          }
-        }
-      }
-
-      if (payeeMappings.size > 0) {
-        const newMappings = Array.from(payeeMappings.entries()).map(([payee, info]) => ({
-          payee,
-          category: info.category,
-          isExpense: info.isExpense,
-        }));
-        await send('swiss-bank-add-payee-mappings', { newMappings });
-      }
-    }
-
-    // Revolut balance correction
-    if (isRevolutImport && currentRevolutTotal) {
-      // Parse the user-entered total (handle Swiss format with apostrophes)
-      const cleanedTotal = currentRevolutTotal.replace(/'/g, '').replace(',', '.');
-      const totalCHF = parseFloat(cleanedTotal);
-
-      if (!isNaN(totalCHF)) {
-        const totalCents = Math.round(totalCHF * 100);
-        const balanceResult = await send('revolut-balance-check', {
-          expectedTotalCHF: totalCents,
-        });
-
-        if (balanceResult.difference !== 0 && !balanceResult.correctionBooked) {
-          // Category not configured - need to ask user
-          // Store the pending correction and show the category prompt
-          setPendingBalanceCorrection({
-            difference: balanceResult.difference,
-            expectedBalance: balanceResult.expectedBalance,
-            accountBalance: balanceResult.accountBalance,
-          });
-          setShowCategoryPrompt(true);
-          // Don't close the modal yet - wait for user to select category
-          return;
-        }
-      }
-    }
-
-    // Close the import modal first, then notify
-    // This ensures the summary modal pushed by the import thunk stays visible
     close();
     if (onImported) {
       onImported(didChange);
-    }
-  }
-
-  // Handle category selection for balance correction
-  async function handleDifferenzCategoryConfirm() {
-    if (!selectedDifferenzCategory || !pendingBalanceCorrection) {
-      return;
-    }
-
-    // Save the category to settings
-    const newSettings = { ...importSettings, revolut_differenz_category: selectedDifferenzCategory };
-    await send('swiss-bank-save-import-settings', { settings: newSettings });
-    setImportSettings(newSettings);
-
-    // Now call the balance check again - it will book the correction with the new category
-    const balanceResult = await send('revolut-balance-check', {
-      expectedTotalCHF: pendingBalanceCorrection.expectedBalance,
-    });
-
-    // Close the prompt and modal
-    setShowCategoryPrompt(false);
-    setPendingBalanceCorrection(null);
-    close();
-    if (onImported) {
-      onImported(true);
     }
   }
 
@@ -1182,18 +742,6 @@ export function ImportTransactionsModal({
       multiplierAmount,
     );
 
-    // For Swiss bank imports, sort transactions: new (neu) first, existing (vorhanden) after
-    if (isSwissBankImport) {
-      transactionPreview.sort((a, b) => {
-        const aIsExisting = a.ignored || a.existing;
-        const bIsExisting = b.ignored || b.existing;
-        // New transactions (not existing) come first
-        if (aIsExisting && !bIsExisting) return 1;
-        if (!aIsExisting && bIsExisting) return -1;
-        return 0; // Keep original order within same group
-      });
-    }
-
     setTransactions(transactionPreview);
   }, [
     getImportPreview,
@@ -1206,7 +754,6 @@ export function ImportTransactionsModal({
     inOutMode,
     outValue,
     multiplierAmount,
-    isSwissBankImport,
   ]);
 
   useEffect(() => {
@@ -1228,32 +775,19 @@ export function ImportTransactionsModal({
     multiplierAmount,
     loadingState,
     parsedTransactions.length,
-    previewAccountId, // Re-run preview when the correct account is determined for Swiss bank imports
   ]);
 
   const headers: ComponentProps<typeof TableHeader>['headers'] = [
     { name: t('Date'), width: 200 },
     { name: t('Payee'), width: 'flex' },
-  ];
-
-  // Add currency column for Revolut imports (after Payee, before Notes)
-  if (isRevolutImport) {
-    headers.push({ name: t('Curr'), width: 60 });
-  }
-
-  headers.push(
     { name: t('Notes'), width: 'flex' },
     { name: t('Category'), width: 'flex' },
-  );
+  ];
 
   if (reconcile) {
     headers.unshift({ name: ' ', width: 31 });
   }
 
-  // Add status column for Swiss bank imports to show duplicate indicator
-  if (isSwissBankImport) {
-    headers.push({ name: t('Status'), width: 80 });
-  }
   if (inOutMode) {
     headers.push({
       name: t('In/Out'),
@@ -1356,13 +890,6 @@ export function ImportTransactionsModal({
                       categoryGroups={categories.grouped}
                       onCheckTransaction={onCheckTransaction}
                       reconcile={reconcile}
-                      showStatus={isSwissBankImport}
-                      showCurrency={isRevolutImport}
-                      isSwissBankImport={isSwissBankImport}
-                      selectedCategory={transactionCategories.get(item.trx_id)?.selectedCategory}
-                      onCategoryChange={onTransactionCategoryChange}
-                      editedNotes={transactionNotes.get(item.trx_id)}
-                      onNotesChange={onTransactionNotesChange}
                     />
                   </View>
                 )}
@@ -1388,225 +915,7 @@ export function ImportTransactionsModal({
             </View>
           )}
 
-          {/* Swiss Bank Import Settings Dialog */}
-          {showSettingsDialog && (
-            <View
-              style={{
-                marginTop: 10,
-                padding: 15,
-                backgroundColor: theme.tableRowBackgroundHover,
-                borderRadius: 4,
-                border: '1px solid ' + theme.tableBorder,
-              }}
-            >
-              <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>
-                <Trans>Configure Import Settings</Trans>
-              </Text>
-              <Text style={{ marginBottom: 15, color: theme.pageTextSubdued }}>
-                {isMigrosImport ? (
-                  <Trans>Select the account where Migros transactions should be imported.</Trans>
-                ) : (
-                  <Trans>Select the accounts for Revolut transfers (bank account for top-ups/withdrawals, cash account for ATM).</Trans>
-                )}
-              </Text>
-
-              {isMigrosImport && (
-                <View style={{ marginBottom: 10 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <Text style={{ width: 150 }}><Trans>Migros Account:</Trans></Text>
-                    <Select
-                      value={importSettings.migros_account}
-                      onChange={(e: string) => setImportSettings({ ...importSettings, migros_account: e })}
-                      options={[
-                        ['', t('Select an account...')] as [string, string],
-                        ...accounts.filter(a => !a.closed).map(a => [a.name, a.name] as [string, string]),
-                      ]}
-                      style={{ flex: 1 }}
-                    />
-                  </label>
-                </View>
-              )}
-
-              {isRevolutImport && (
-                <>
-                  <View style={{ marginBottom: 10 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Text style={{ width: 150 }}><Trans>Topup Bank Account:</Trans></Text>
-                      <Select
-                        value={importSettings.revolut_bank_account}
-                        onChange={(e: string) => setImportSettings({ ...importSettings, revolut_bank_account: e })}
-                        options={[
-                          ['', t('Select an account...')] as [string, string],
-                          ...accounts.filter(a => !a.closed).map(a => [a.name, a.name] as [string, string]),
-                        ]}
-                        style={{ flex: 1 }}
-                      />
-                    </label>
-                  </View>
-                  <View style={{ marginBottom: 10 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Text style={{ width: 150 }}><Trans>Cash Account:</Trans></Text>
-                      <Select
-                        value={importSettings.cash_account}
-                        onChange={(e: string) => setImportSettings({ ...importSettings, cash_account: e })}
-                        options={[
-                          ['', t('Select an account...')] as [string, string],
-                          ...accounts.filter(a => !a.closed).map(a => [a.name, a.name] as [string, string]),
-                        ]}
-                        style={{ flex: 1 }}
-                      />
-                    </label>
-                  </View>
-                  <View style={{ marginBottom: 10 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Text style={{ width: 150 }}><Trans>Differenz Category:</Trans></Text>
-                      <Select
-                        value={importSettings.revolut_differenz_category}
-                        onChange={(e: string) => setImportSettings({ ...importSettings, revolut_differenz_category: e })}
-                        options={[
-                          ['', t('Select a category...')] as [string, string],
-                          ...categories.grouped
-                            .flatMap(group =>
-                              (group.categories || []).map(cat => {
-                                const fullName = `${group.name}:${cat.name}`;
-                                return [fullName, fullName] as [string, string];
-                              })
-                            )
-                            .sort((a, b) => a[0].localeCompare(b[0])),
-                        ]}
-                        style={{ flex: 1 }}
-                      />
-                    </label>
-                  </View>
-                </>
-              )}
-
-              <View style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
-                <Button
-                  onPress={async () => {
-                    await send('swiss-bank-save-import-settings', { settings: importSettings });
-                    setShowSettingsDialog(false);
-                  }}
-                  variant="primary"
-                >
-                  <Trans>Save Settings</Trans>
-                </Button>
-              </View>
-            </View>
-          )}
-
-          {/* Category Prompt for Revolut Balance Correction */}
-          {showCategoryPrompt && pendingBalanceCorrection && (
-            <View
-              style={{
-                marginTop: 10,
-                padding: 15,
-                backgroundColor: theme.warningBackground,
-                borderRadius: 4,
-                border: '1px solid ' + theme.warningBorder,
-              }}
-            >
-              <Text style={{ fontWeight: 'bold', marginBottom: 10, color: theme.warningText }}>
-                <Trans>Balance Correction Required</Trans>
-              </Text>
-              <Text style={{ marginBottom: 15 }}>
-                <Trans>
-                  The calculated Revolut balance differs from the entered total.
-                  Please select a category for the balance correction transaction.
-                </Trans>
-              </Text>
-              <View style={{ marginBottom: 10, padding: 10, backgroundColor: theme.tableBackground, borderRadius: 4 }}>
-                <Text style={{ fontSize: '0.9em' }}>
-                  <Trans>Current Balance:</Trans> {(pendingBalanceCorrection.accountBalance / 100).toFixed(2)} CHF
-                </Text>
-                <Text style={{ fontSize: '0.9em' }}>
-                  <Trans>Expected Total:</Trans> {(pendingBalanceCorrection.expectedBalance / 100).toFixed(2)} CHF
-                </Text>
-                <Text style={{ fontSize: '0.9em', fontWeight: 'bold', color: pendingBalanceCorrection.difference > 0 ? theme.noticeText : theme.errorText }}>
-                  <Trans>Difference:</Trans> {pendingBalanceCorrection.difference > 0 ? '+' : ''}{(pendingBalanceCorrection.difference / 100).toFixed(2)} CHF
-                </Text>
-              </View>
-              <View style={{ marginBottom: 10 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Text style={{ width: 150 }}><Trans>Category:</Trans></Text>
-                  <Select
-                    value={selectedDifferenzCategory}
-                    onChange={(e: string) => setSelectedDifferenzCategory(e)}
-                    options={[
-                      ['', t('Select a category...')] as [string, string],
-                      ...categories.grouped
-                        .flatMap(group =>
-                          (group.categories || []).map(cat => {
-                            const fullName = `${group.name}:${cat.name}`;
-                            return [fullName, fullName] as [string, string];
-                          })
-                        )
-                        .sort((a, b) => a[0].localeCompare(b[0])),
-                    ]}
-                    style={{ flex: 1 }}
-                  />
-                </label>
-              </View>
-              <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
-                <Button
-                  onPress={() => {
-                    setShowCategoryPrompt(false);
-                    setPendingBalanceCorrection(null);
-                    close();
-                    if (onImported) {
-                      onImported(true);
-                    }
-                  }}
-                >
-                  <Trans>Skip Correction</Trans>
-                </Button>
-                <Button
-                  variant="primary"
-                  isDisabled={!selectedDifferenzCategory}
-                  onPress={handleDifferenzCategoryConfirm}
-                >
-                  <Trans>Book Correction</Trans>
-                </Button>
-              </View>
-            </View>
-          )}
-
-          {/* Current Revolut Total input for balance correction */}
-          {isRevolutImport && (
-            <View style={{ marginTop: 10, marginBottom: 10 }}>
-              <SpaceBetween style={{ alignItems: 'center' }}>
-                <label
-                  htmlFor="revolut-total-input"
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    gap: 5,
-                    alignItems: 'center',
-                    fontWeight: 500,
-                  }}
-                >
-                  <Trans>Current Revolut Total (CHF):</Trans>
-                  <Input
-                    id="revolut-total-input"
-                    type="text"
-                    value={currentRevolutTotal}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                      // Allow numbers, dots, commas, and apostrophes for Swiss format
-                      const value = e.target.value.replace(/[^0-9.,'-]/g, '');
-                      setCurrentRevolutTotal(value);
-                    }}
-                    placeholder="z.B. 14'523.45"
-                    style={{ width: 150 }}
-                  />
-                </label>
-                <Text style={{ color: theme.pageTextSubdued, fontSize: '0.85em' }}>
-                  <Trans>Enter the current total from your Revolut app to correct exchange rate differences</Trans>
-                </Text>
-              </SpaceBetween>
-            </View>
-          )}
-
-          {filetype === 'csv' && !isSwissBankImport && (
+          {filetype === 'csv' && (
             <View style={{ marginTop: 10 }}>
               <FieldMappings
                 transactions={transactions}
@@ -1655,8 +964,7 @@ export function ImportTransactionsModal({
             </LabeledCheckbox>
           )}
 
-          {/*Import Options - hidden for Swiss bank imports */}
-          {(filetype === 'qif' || filetype === 'csv') && !isSwissBankImport && (
+          {(filetype === 'qif' || filetype === 'csv') && (
             <View style={{ marginTop: 10 }}>
               <SpaceBetween
                 gap={5}
@@ -1852,7 +1160,7 @@ export function ImportTransactionsModal({
                   <ButtonWithLoading
                     variant="primary"
                     autoFocus
-                    isDisabled={count === 0 || showSettingsDialog}
+                    isDisabled={count === 0}
                     isLoading={loadingState === 'importing'}
                     onPress={() => {
                       onImport(close);
@@ -1872,15 +1180,19 @@ export function ImportTransactionsModal({
 
 function getParseOptions(fileType: string, options: ParseFileOptions = {}) {
   if (fileType === 'csv') {
-    const { delimiter, hasHeaderRow, skipStartLines, skipEndLines, importNotes } = options;
-    // Enable auto-detection of Swiss bank formats (Migros Bank, Revolut)
+    const {
+      delimiter,
+      hasHeaderRow,
+      skipStartLines,
+      skipEndLines,
+      importNotes,
+    } = options;
     return {
       delimiter,
       hasHeaderRow,
       skipStartLines,
       skipEndLines,
       importNotes,
-      swissBankFormat: 'auto' as const,
     };
   }
   if (isOfxFile(fileType)) {
