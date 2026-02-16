@@ -599,7 +599,7 @@ export type Modal =
   | {
       name: 'import-summary';
       options: {
-        importType: 'migros' | 'revolut';
+        importType: 'migros' | 'revolut' | 'kantonalbank';
         accountsUsed: string[];
         accountsCreated: string[];
         transactionsAdded: number;
@@ -617,6 +617,13 @@ export type Modal =
     }
   | {
       name: 'import-migros';
+      options: {
+        filename: string;
+        onImported?: (didChange: boolean) => void;
+      };
+    }
+  | {
+      name: 'import-kantonalbank';
       options: {
         filename: string;
         onImported?: (didChange: boolean) => void;

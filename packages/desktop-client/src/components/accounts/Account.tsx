@@ -588,8 +588,8 @@ class AccountInternal extends PureComponent<
       const res = await window.Actual.openFileDialog({
         filters: [
           {
-            name: t('CSV Files'),
-            extensions: ['csv', 'tsv'],
+            name: t('Financial Files'),
+            extensions: ['csv', 'tsv', 'xlsx'],
           },
         ],
       });
@@ -624,6 +624,15 @@ class AccountInternal extends PureComponent<
             pushModal({
               modal: {
                 name: 'import-migros',
+                options: { filename, onImported },
+              },
+            }),
+          );
+        } else if (metadata?.bankFormat === 'kantonalbank') {
+          this.props.dispatch(
+            pushModal({
+              modal: {
+                name: 'import-kantonalbank',
                 options: { filename, onImported },
               },
             }),

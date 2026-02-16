@@ -731,7 +731,64 @@ export const importMigrosTransactions = createAppAsyncThunk(
       }),
     );
 
-    return (imported.added?.length || 0) > 0 || (imported.updated?.length || 0) > 0;
+    return (
+      (imported.added?.length || 0) > 0 || (imported.updated?.length || 0) > 0
+    );
+  },
+);
+
+/**
+ * Import Kantonalbank transactions to the configured account.
+ * Uses kantonalbank_account from import_settings.json.
+ */
+type ImportKantonalbankTransactionsPayload = {
+  transactions: TransactionEntity[];
+};
+
+export const importKantonalbankTransactions = createAppAsyncThunk(
+  `${sliceName}/importKantonalbankTransactions`,
+  async (
+    { transactions }: ImportKantonalbankTransactionsPayload,
+    { dispatch },
+  ) => {
+    const {
+      errors = [],
+      accountUsed = '',
+      imported = { added: [], updated: [] },
+      categoriesApplied = 0,
+    } = await send('transactions-import-kantonalbank', {
+      transactions,
+      isPreview: false,
+    });
+
+    dispatch(
+      setNewTransactions({
+        newTransactions: imported.added || [],
+        matchedTransactions: imported.updated || [],
+      }),
+    );
+
+    // Show import summary modal
+    dispatch(
+      pushModal({
+        modal: {
+          name: 'import-summary',
+          options: {
+            importType: 'kantonalbank',
+            accountsUsed: accountUsed ? [accountUsed] : [],
+            accountsCreated: [],
+            transactionsAdded: imported.added?.length || 0,
+            transactionsUpdated: imported.updated?.length || 0,
+            categoriesApplied,
+            errors: errors.map(e => e.message),
+          },
+        },
+      }),
+    );
+
+    return (
+      (imported.added?.length || 0) > 0 || (imported.updated?.length || 0) > 0
+    );
   },
 );
 

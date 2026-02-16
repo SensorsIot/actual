@@ -1,5 +1,6 @@
 // @ts-strict-ignore
 import { parse as csv2json } from 'csv-parse/sync';
+import * as XLSX from 'xlsx';
 
 import * as fs from '../../../platform/server/fs';
 import { logger } from '../../../platform/server/log';
@@ -20,7 +21,10 @@ const exchangeRateCache = new Map<string, number>();
  * Uses Frankfurter API (free, no API key needed).
  * Returns 1.0 for CHF, fetches rate for other currencies.
  */
-async function getExchangeRate(date: string, fromCurrency: string): Promise<number> {
+async function getExchangeRate(
+  date: string,
+  fromCurrency: string,
+): Promise<number> {
   const currency = fromCurrency.toUpperCase();
 
   // CHF to CHF is always 1
@@ -40,7 +44,9 @@ async function getExchangeRate(date: string, fromCurrency: string): Promise<numb
     const response = await fetch(url);
 
     if (!response.ok) {
-      logger.warn(`Exchange rate API error: ${response.status} for ${currency} on ${date}`);
+      logger.warn(
+        `Exchange rate API error: ${response.status} for ${currency} on ${date}`,
+      );
       // Fallback: try latest rate
       const latestUrl = `https://api.frankfurter.app/latest?from=${currency}&to=CHF`;
       const latestResponse = await fetch(latestUrl);
@@ -62,7 +68,10 @@ async function getExchangeRate(date: string, fromCurrency: string): Promise<numb
 
     return rate;
   } catch (error) {
-    logger.error(`Failed to fetch exchange rate for ${currency} on ${date}:`, error);
+    logger.error(
+      `Failed to fetch exchange rate for ${currency} on ${date}:`,
+      error,
+    );
     return 1.0; // Fallback to 1:1 if API fails
   }
 }
@@ -127,7 +136,7 @@ type ParseError = { message: string; internal: string };
 // Metadata returned by Swiss bank parsers
 export type SwissBankMetadata = {
   bankSaldo?: number; // Bank balance from CSV header (in cents)
-  bankFormat?: 'migros' | 'revolut';
+  bankFormat?: 'migros' | 'revolut' | 'kantonalbank';
   currencies?: string[]; // For Revolut: list of currencies found
 };
 
@@ -138,7 +147,12 @@ export type ParseFileResult = {
   metadata?: SwissBankMetadata;
 };
 
-export type SwissBankFormat = 'migros' | 'revolut' | 'auto' | null;
+export type SwissBankFormat =
+  | 'migros'
+  | 'revolut'
+  | 'kantonalbank'
+  | 'auto'
+  | null;
 
 export type ParseFileOptions = {
   hasHeaderRow?: boolean;
@@ -250,9 +264,10 @@ function extractPayeeFromBuchungstext(buchungstext: string): string {
  * Classify Migros Bank transaction type and detect transfer targets.
  * Handles ATM withdrawals and other transfer patterns.
  */
-function classifyMigrosTransaction(
-  buchungstext: string,
-): { type: string; transferAccount: string | null } {
+function classifyMigrosTransaction(buchungstext: string): {
+  type: string;
+  transferAccount: string | null;
+} {
   const textLower = buchungstext.toLowerCase();
 
   // ATM Withdrawal: Bank -> Cash (Kasse)
@@ -374,7 +389,7 @@ async function parseMigrosCSV(
       const saldoStr = row[1] || '';
       bankSaldo = parseSwissAmountToCents(saldoStr) ?? undefined;
       if (bankSaldo !== undefined) {
-        console.log(`Migros Bank saldo from CSV: ${bankSaldo / 100} CHF`);
+        logger.log(`Migros Bank saldo from CSV: ${bankSaldo / 100} CHF`);
       }
       break;
     }
@@ -512,9 +527,14 @@ function classifyRevolutTransaction(
     case 'exchange':
       // Currency Exchange: use converted CHF amount (neutral)
       const exchangeMatch = beschreibung.match(/(?:to|nach|->)\s*([A-Z]{3})/i);
-      const targetCurrency = exchangeMatch ? exchangeMatch[1].toUpperCase() : null;
+      const targetCurrency = exchangeMatch
+        ? exchangeMatch[1].toUpperCase()
+        : null;
       if (targetCurrency && targetCurrency !== currency) {
-        return { type: 'exchange', transferAccount: `Revolut ${targetCurrency}` };
+        return {
+          type: 'exchange',
+          transferAccount: `Revolut ${targetCurrency}`,
+        };
       }
       return { type: 'exchange', transferAccount: null };
 
@@ -593,8 +613,10 @@ async function parseRevolutCSV(
 
     // Sort by start date to ensure exchange pairs are adjacent
     data.sort((a, b) => {
-      const dateA = getRevolutField(a, 'Started Date', 'Datum des Beginns') || '';
-      const dateB = getRevolutField(b, 'Started Date', 'Datum des Beginns') || '';
+      const dateA =
+        getRevolutField(a, 'Started Date', 'Datum des Beginns') || '';
+      const dateB =
+        getRevolutField(b, 'Started Date', 'Datum des Beginns') || '';
       return dateA.localeCompare(dateB);
     });
   } catch (err) {
@@ -610,11 +632,7 @@ async function parseRevolutCSV(
   for (const row of data) {
     // Skip pending/reverted transactions (like Python: only COMPLETED)
     const status = getRevolutField(row, 'State', 'Status');
-    if (
-      status &&
-      status !== 'COMPLETED' &&
-      status !== 'ABGESCHLOSSEN'
-    ) {
+    if (status && status !== 'COMPLETED' && status !== 'ABGESCHLOSSEN') {
       continue;
     }
 
@@ -646,7 +664,7 @@ async function parseRevolutCSV(
     let amountCHF = originalAmount ?? 0;
     if (currencyCode !== 'CHF' && originalAmount !== null) {
       const rate = await getExchangeRate(transactionDate, currencyCode);
-      amountCHF = Math.round((originalAmount * rate) * 100) / 100; // Round to 2 decimals
+      amountCHF = Math.round(originalAmount * rate * 100) / 100; // Round to 2 decimals
     }
 
     // Classify transaction type and detect transfers
@@ -704,7 +722,7 @@ async function parseRevolutCSV(
   // Post-process: Match exchange pairs and use actual CHF amount for both sides
   // This ensures currency exchanges are neutral (same CHF amount on both sides)
   const exchangeTransactions = transactions.filter(
-    t => (t as StructuredTransaction).transaction_type === 'exchange'
+    t => (t as StructuredTransaction).transaction_type === 'exchange',
   );
 
   // Group exchanges by timestamp (more precise than date for same-day exchanges)
@@ -712,7 +730,8 @@ async function parseRevolutCSV(
   for (const txn of exchangeTransactions) {
     const st = txn as StructuredTransaction;
     // Use exchange_timestamp if available, fall back to date
-    const key = (st as { exchange_timestamp?: string }).exchange_timestamp || st.date;
+    const key =
+      (st as { exchange_timestamp?: string }).exchange_timestamp || st.date;
     if (!exchangesByTimestamp.has(key)) {
       exchangesByTimestamp.set(key, []);
     }
@@ -741,11 +760,12 @@ async function parseRevolutCSV(
         otherSide.notes += `\n[Actual CHF: ${Math.abs(chfAmount).toFixed(2)}]`;
       }
 
-      const direction = chfAmount > 0
-        ? `${otherSide.currency} -> CHF`
-        : `CHF -> ${otherSide.currency}`;
+      const direction =
+        chfAmount > 0
+          ? `${otherSide.currency} -> CHF`
+          : `CHF -> ${otherSide.currency}`;
       logger.info(
-        `[Revolut Exchange] Matched ${direction}: using actual amount ${Math.abs(chfAmount).toFixed(2)} CHF`
+        `[Revolut Exchange] Matched ${direction}: using actual amount ${Math.abs(chfAmount).toFixed(2)} CHF`,
       );
     }
     // If neither side is CHF (e.g., EUR -> USD), both use API rates - leave as-is
@@ -797,6 +817,8 @@ export async function parseFile(
         return parseOFX(filepath, options);
       case '.xml':
         return parseCAMT(filepath, options);
+      case '.xlsx':
+        return parseXLSX(filepath, options);
       default:
     }
   }
@@ -806,6 +828,298 @@ export async function parseFile(
     internal: '',
   });
   return { errors, transactions: [] };
+}
+
+/**
+ * Convert an xlsx Date value (Date object or serial number) to YYYY-MM-DD string.
+ */
+function xlsxDateToString(value: unknown): string {
+  if (value instanceof Date) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  if (typeof value === 'number') {
+    // Excel serial date number
+    const date = XLSX.SSF.parse_date_code(value);
+    const y = date.y;
+    const m = String(date.m).padStart(2, '0');
+    const d = String(date.d).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  if (typeof value === 'string') {
+    // Try DD.MM.YYYY Swiss format
+    return parseSwissDate(value);
+  }
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Extract payee and notes from Kantonalbank Buchungstext.
+ * The Buchungstext field contains multiline text with different patterns
+ * depending on the transaction type.
+ */
+function parseKantonalbankBuchungstext(buchungstext: string): {
+  payee: string;
+  notes: string;
+} {
+  if (!buchungstext) {
+    return { payee: '', notes: '' };
+  }
+
+  const lines = buchungstext
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean);
+  if (lines.length === 0) {
+    return { payee: '', notes: '' };
+  }
+
+  const firstLine = lines[0];
+
+  // --- Viseca Zahlung ---
+  if (firstLine.startsWith('Viseca Zahlung')) {
+    // Payee is on line 2, strip last word (city)
+    const payeeLine = lines[1] || '';
+    const payeeParts = payeeLine.split(/\s+/);
+    const payee =
+      payeeParts.length > 1 ? payeeParts.slice(0, -1).join(' ') : payeeLine;
+
+    // FX info in notes
+    const fxLines = lines.filter(
+      l =>
+        l.startsWith('Originalbetrag') ||
+        l.startsWith('Währungskurs') ||
+        l.startsWith('Wahrungskurs'),
+    );
+    return { payee, notes: fxLines.join('\n') };
+  }
+
+  // --- TWINT-Zahlung: Geld gesendet/erhalten ---
+  if (firstLine.startsWith('TWINT-Zahlung')) {
+    const hasSentReceived = lines.some(
+      l => l.includes('Geld gesendet') || l.includes('Geld erhalten'),
+    );
+
+    if (hasSentReceived) {
+      // Find the trigger line index
+      const triggerIdx = lines.findIndex(
+        l => l.includes('Geld gesendet') || l.includes('Geld erhalten'),
+      );
+      // Person name is line after trigger
+      const payee = lines[triggerIdx + 1] || lines[1] || '';
+
+      // Message lines between name and timestamp (lines with time pattern HH:MM)
+      const noteLines: string[] = [];
+      for (let i = triggerIdx + 2; i < lines.length; i++) {
+        if (
+          /^\d{2}:\d{2}/.test(lines[i]) ||
+          /^\d{2}\.\d{2}\.\d{4}/.test(lines[i])
+        ) {
+          break;
+        }
+        noteLines.push(lines[i]);
+      }
+      return { payee, notes: noteLines.join('\n') };
+    }
+
+    // TWINT merchant payment: payee on line 2, strip after last comma
+    const payeeLine = lines[1] || '';
+    const lastComma = payeeLine.lastIndexOf(',');
+    const payee =
+      lastComma > 0 ? payeeLine.slice(0, lastComma).trim() : payeeLine;
+    return { payee, notes: '' };
+  }
+
+  // --- Zahlungsauftrag ---
+  if (firstLine.startsWith('Zahlungsauftrag')) {
+    // Look for payee after last "Schweiz" line
+    let payee = '';
+    const schweizIdx = lines.map(l => l.toLowerCase()).lastIndexOf('schweiz');
+    if (schweizIdx >= 0 && schweizIdx + 1 < lines.length) {
+      payee = lines[schweizIdx + 1];
+    }
+    if (!payee) {
+      // Fallback: first non-keyword line after the type line
+      const keywords = [
+        'zahlungsauftrag',
+        'schweiz',
+        'mitteilung:',
+        'esr/qr referenz:',
+        'iban:',
+      ];
+      for (let i = 1; i < lines.length; i++) {
+        const lower = lines[i].toLowerCase();
+        if (!keywords.some(kw => lower.startsWith(kw))) {
+          payee = lines[i];
+          break;
+        }
+      }
+    }
+
+    // Extract Mitteilung and ESR/QR Referenz
+    const noteLines: string[] = [];
+    for (const line of lines) {
+      if (
+        line.startsWith('Mitteilung:') ||
+        line.startsWith('ESR/QR Referenz:')
+      ) {
+        noteLines.push(line);
+      }
+    }
+    return { payee, notes: noteLines.join('\n') };
+  }
+
+  // --- Zahlungseingang ---
+  if (firstLine.startsWith('Zahlungseingang')) {
+    const payee = lines[1] || '';
+    const noteLines: string[] = [];
+    for (const line of lines) {
+      if (line.startsWith('Mitteilung:') || line.startsWith('Information:')) {
+        noteLines.push(line);
+      }
+    }
+    return { payee, notes: noteLines.join('\n') };
+  }
+
+  // --- Default: use first line as payee, rest as notes ---
+  return {
+    payee: lines[0],
+    notes: lines.slice(1).join('\n'),
+  };
+}
+
+/**
+ * Parse Kantonalbank XLSX and return structured transactions.
+ * Expected columns: Auftragsdatum, Buchungstext, Valutadatum, Belastungsbetrag, Gutschriftsbetrag, Buchungswährung, Saldo
+ */
+async function parseKantonalbankXLSX(
+  sheetData: unknown[][],
+  options: ParseFileOptions,
+): Promise<ParseFileResult> {
+  const errors = Array<ParseError>();
+  const transactions: StructuredTransaction[] = [];
+
+  // First row is header, data starts at row 1
+  let bankSaldo: number | undefined;
+
+  for (let i = 1; i < sheetData.length; i++) {
+    const row = sheetData[i];
+    if (!row || !row[0]) continue;
+
+    // Column mapping:
+    // 0: Auftragsdatum, 1: Buchungstext, 2: Valutadatum
+    // 3: Belastungsbetrag, 4: Gutschriftsbetrag, 5: Buchungswährung, 6: Saldo
+    const dateValue = row[0];
+    const buchungstext = String(row[1] || '');
+    const belastung = typeof row[3] === 'number' ? row[3] : 0;
+    const gutschrift = typeof row[4] === 'number' ? row[4] : 0;
+    const saldo = typeof row[6] === 'number' ? row[6] : undefined;
+
+    // Calculate amount: credit - debit
+    const amount = gutschrift - belastung;
+    const amountCents = Math.round(amount * 100);
+
+    // Parse date
+    const date = xlsxDateToString(dateValue);
+
+    // Parse Buchungstext for payee/notes
+    const { payee, notes } = parseKantonalbankBuchungstext(buchungstext);
+
+    // Track last saldo for balance verification
+    if (saldo !== undefined) {
+      bankSaldo = Math.round(saldo * 100);
+    }
+
+    transactions.push({
+      amount: amountCents / 100, // Store as decimal, will be converted to integer at import time
+      date,
+      payee_name: payee || buchungstext.split('\n')[0]?.slice(0, 50) || '',
+      imported_payee: payee || buchungstext.split('\n')[0]?.slice(0, 50) || '',
+      notes: options.importNotes ? notes : '',
+    });
+  }
+
+  return {
+    errors,
+    transactions,
+    metadata: {
+      bankSaldo,
+      bankFormat: 'kantonalbank',
+    },
+  };
+}
+
+/**
+ * Parse XLSX file. Currently supports Kantonalbank format detection.
+ */
+async function parseXLSX(
+  filepath: string,
+  options: ParseFileOptions,
+): Promise<ParseFileResult> {
+  const errors = Array<ParseError>();
+
+  try {
+    const buffer = await fs.readFile(filepath, 'binary');
+    const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) {
+      errors.push({
+        message: 'XLSX file contains no sheets',
+        internal: 'No sheets found in workbook',
+      });
+      return { errors, transactions: [] };
+    }
+
+    const sheet = workbook.Sheets[firstSheetName];
+    const sheetData: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
+      header: 1,
+      raw: false,
+      dateNF: 'yyyy-mm-dd',
+    });
+
+    if (sheetData.length === 0) {
+      errors.push({
+        message: 'XLSX file contains no data',
+        internal: 'Sheet is empty',
+      });
+      return { errors, transactions: [] };
+    }
+
+    // Detect Kantonalbank format: check header row for expected columns
+    const headerRow = sheetData[0] as string[];
+    if (headerRow) {
+      const headerStr = headerRow.map(h => String(h || '').toLowerCase());
+      const hasAuftragsdatum = headerStr.some(h => h.includes('auftragsdatum'));
+      const hasBuchungstext = headerStr.some(h => h.includes('buchungstext'));
+      const hasBelastung = headerStr.some(
+        h => h.includes('belastungsbetrag') || h.includes('belastung'),
+      );
+
+      if (hasAuftragsdatum && hasBuchungstext && hasBelastung) {
+        // Re-parse with raw numbers for amount columns
+        const rawSheetData: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
+          header: 1,
+          raw: true,
+        });
+        return parseKantonalbankXLSX(rawSheetData, options);
+      }
+    }
+
+    errors.push({
+      message:
+        'Unsupported XLSX format. Currently only Kantonalbank exports are supported.',
+      internal: 'Header row does not match any known XLSX bank format',
+    });
+    return { errors, transactions: [] };
+  } catch (err) {
+    errors.push({
+      message: 'Failed to parse XLSX file: ' + err.message,
+      internal: err.message,
+    });
+    return { errors, transactions: [] };
+  }
 }
 
 async function parseCSV(

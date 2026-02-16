@@ -42,10 +42,11 @@ import { GoCardlessInitialiseModal } from './modals/GoCardlessInitialiseModal';
 import { HoldBufferModal } from './modals/HoldBufferModal';
 import { ImportSummaryModal } from './modals/ImportSummaryModal';
 import { ImportTransactionsModal } from './modals/ImportTransactionsModal';
+import { ImportKantonalbankModal } from './modals/ImportTransactionsModal/ImportKantonalbankModal';
 import { ImportMigrosModal } from './modals/ImportTransactionsModal/ImportMigrosModal';
 import { ImportRevolutModal } from './modals/ImportTransactionsModal/ImportRevolutModal';
-import { LearnCategoriesModal } from './modals/LearnCategoriesModal';
 import { KeyboardShortcutModal } from './modals/KeyboardShortcutModal';
+import { LearnCategoriesModal } from './modals/LearnCategoriesModal';
 import { LoadBackupModal } from './modals/LoadBackupModal';
 import { ConfirmChangeDocumentDirModal } from './modals/manager/ConfirmChangeDocumentDir';
 import { DeleteFileModal } from './modals/manager/DeleteFileModal';
@@ -133,6 +134,9 @@ export function Modals() {
 
         case 'import-migros':
           return <ImportMigrosModal key={key} options={modal.options} />;
+
+        case 'import-kantonalbank':
+          return <ImportKantonalbankModal key={key} options={modal.options} />;
 
         case 'import-summary':
           return <ImportSummaryModal key={key} {...modal.options} />;

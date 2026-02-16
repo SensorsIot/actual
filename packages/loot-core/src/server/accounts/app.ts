@@ -3,8 +3,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { captureException } from '../../platform/exceptions';
 import * as asyncStorage from '../../platform/server/asyncStorage';
-import * as fs from '../../platform/server/fs';
 import * as connection from '../../platform/server/connection';
+import * as fs from '../../platform/server/fs';
 import { logger } from '../../platform/server/log';
 import { isNonProductionEnvironment } from '../../shared/environment';
 import { dayFromDate } from '../../shared/months';
@@ -68,6 +68,7 @@ export type AccountHandlers = {
   'transactions-import': typeof importTransactions;
   'transactions-import-revolut': typeof importRevolutTransactions;
   'transactions-import-migros': typeof importMigrosTransactions;
+  'transactions-import-kantonalbank': typeof importKantonalbankTransactions;
   'account-unlink': typeof unlinkAccount;
   // Swiss bank import features (matching Python implementation)
   'swiss-bank-get-import-settings': typeof getImportSettings;
@@ -1210,9 +1211,7 @@ function parseExchangeAmount(
   originalAmount: number,
 ): number | null {
   // Try to extract "-> XXX.XX CUR" pattern
-  const match = description.match(
-    /[-→>]\s*([\d',.]+)\s*([A-Z]{3})/i,
-  );
+  const match = description.match(/[-→>]\s*([\d',.]+)\s*([A-Z]{3})/i);
   if (match) {
     const amountStr = match[1].replace(/'/g, '').replace(',', '.');
     const amount = parseFloat(amountStr);
@@ -1319,7 +1318,8 @@ async function importRevolutTransactions({
           }
           if (!txn.category) {
             // Determine if expense based on amount (negative = expense)
-            const isExpense = typeof txn.amount === 'number' ? txn.amount < 0 : true;
+            const isExpense =
+              typeof txn.amount === 'number' ? txn.amount < 0 : true;
             const categoryId = await getCategoryForPayee(
               txn.payee_name || txn.imported_payee,
               payeeMapping,
@@ -1386,14 +1386,17 @@ async function importRevolutTransactions({
     if (!isPreview && createTransfers && importedWithMeta.length > 0) {
       // First, collect all exchange transactions to link them
       const exchangeTransactions = importedWithMeta.filter(
-        imp => imp.txn.transaction_type === 'exchange'
+        imp => imp.txn.transaction_type === 'exchange',
       );
 
       // Group exchanges by timestamp for precise matching (handles multiple exchanges per day)
       const exchangesByTimestamp = new Map<string, typeof importedWithMeta>();
       for (const imp of exchangeTransactions) {
         // Use exchange_timestamp if available, fall back to date
-        const key = (imp.txn as { exchange_timestamp?: string }).exchange_timestamp || imp.txn.date || '';
+        const key =
+          (imp.txn as { exchange_timestamp?: string }).exchange_timestamp ||
+          imp.txn.date ||
+          '';
         if (!exchangesByTimestamp.has(key)) {
           exchangesByTimestamp.set(key, []);
         }
@@ -1441,7 +1444,7 @@ async function importRevolutTransactions({
           result.transfersLinked++;
 
           logger.info(
-            `Linked exchange: ${otherSide.currency} -> CHF (${Math.abs(otherSide.txn.amount) / 100} CHF)`
+            `Linked exchange: ${otherSide.currency} -> CHF (${Math.abs(otherSide.txn.amount) / 100} CHF)`,
           );
         }
       }
@@ -1641,7 +1644,8 @@ async function checkRevolutBalanceAndCorrect({
     // Find Revolut CHF account specifically (needed for booking correction)
     const revolutCHF = revolutAccounts.find(a => a.name === 'Revolut CHF');
     if (!revolutCHF) {
-      result.error = 'Revolut CHF account not found (required for booking correction)';
+      result.error =
+        'Revolut CHF account not found (required for booking correction)';
       return result;
     }
 
@@ -1668,7 +1672,9 @@ async function checkRevolutBalanceAndCorrect({
     const importSettings = await getImportSettings();
     const categoryName = importSettings.revolut_differenz_category || 'Hobby';
 
-    logger.info(`[Revolut Balance Check] Difference: ${(result.difference / 100).toFixed(2)} CHF, Category: "${categoryName}"`);
+    logger.info(
+      `[Revolut Balance Check] Difference: ${(result.difference / 100).toFixed(2)} CHF, Category: "${categoryName}"`,
+    );
 
     // Find category by name (search in format "Group:Category" or just "Category")
     let categoryId: string | null = null;
@@ -1699,7 +1705,9 @@ async function checkRevolutBalanceAndCorrect({
     }
 
     if (!categoryId) {
-      logger.warn(`Category "${categoryName}" not found for Revolut Differenz, booking without category`);
+      logger.warn(
+        `Category "${categoryName}" not found for Revolut Differenz, booking without category`,
+      );
     } else {
       logger.info(`Category "${categoryName}" found with ID: ${categoryId}`);
     }
@@ -1723,7 +1731,9 @@ async function checkRevolutBalanceAndCorrect({
     const txnId = uuidv4();
     const today = monthUtils.currentDay();
 
-    logger.info(`[Revolut Balance Check] Creating correction transaction: ${(result.difference / 100).toFixed(2)} CHF on ${today}`);
+    logger.info(
+      `[Revolut Balance Check] Creating correction transaction: ${(result.difference / 100).toFixed(2)} CHF on ${today}`,
+    );
 
     await db.insertTransaction({
       id: txnId,
@@ -1792,11 +1802,15 @@ async function importMigrosTransactions({
     // Load settings from import_settings.json
     const importSettings = await getImportSettings();
     const accountName = importSettings.migros_account;
-    const cashAccountName = opts?.cashAccountName || importSettings.cash_account || 'Kasse';
+    const cashAccountName =
+      opts?.cashAccountName || importSettings.cash_account || 'Kasse';
     const createTransfers = opts?.createTransfers !== false;
 
     if (!accountName) {
-      result.errors.push({ message: 'Migros account not configured. Please configure import settings.' });
+      result.errors.push({
+        message:
+          'Migros account not configured. Please configure import settings.',
+      });
       return result;
     }
 
@@ -1833,7 +1847,8 @@ async function importMigrosTransactions({
         }
         if (!txn.category) {
           // Determine if expense based on amount (negative = expense)
-          const isExpense = typeof txn.amount === 'number' ? txn.amount < 0 : true;
+          const isExpense =
+            typeof txn.amount === 'number' ? txn.amount < 0 : true;
           const categoryId = await getCategoryForPayee(
             txn.payee_name || txn.imported_payee,
             payeeMapping,
@@ -1845,18 +1860,22 @@ async function importMigrosTransactions({
           }
         }
       }
-      logger.info(`Applied payee-category mapping: ${result.categoriesApplied} categorized`);
+      logger.info(
+        `Applied payee-category mapping: ${result.categoriesApplied} categorized`,
+      );
     }
 
     // Remove transfer-specific fields before import
-    const cleanTransactions: ImportTransactionEntity[] = transactions.map(txn => {
-      const {
-        transaction_type: _txnType,
-        transfer_account: _transferAcct,
-        ...clean
-      } = txn;
-      return clean;
-    });
+    const cleanTransactions: ImportTransactionEntity[] = transactions.map(
+      txn => {
+        const {
+          transaction_type: _txnType,
+          transfer_account: _transferAcct,
+          ...clean
+        } = txn;
+        return clean;
+      },
+    );
 
     // Import transactions to this account
     const reconciled = await bankSync.reconcileTransactions(
@@ -1971,6 +1990,115 @@ async function importMigrosTransactions({
   }
 }
 
+/**
+ * Import Kantonalbank XLSX transactions to the configured account.
+ * Uses kantonalbank_account from import_settings.json.
+ * No transfer type handling (unlike Migros).
+ */
+type KantonalbankImportResult = {
+  errors: Array<{ message: string }>;
+  accountUsed: string;
+  imported: { added: string[]; updated: string[] };
+  categoriesApplied: number;
+};
+
+async function importKantonalbankTransactions({
+  transactions,
+  isPreview = false,
+}: {
+  transactions: ImportTransactionEntity[];
+  isPreview?: boolean;
+}): Promise<KantonalbankImportResult> {
+  const result: KantonalbankImportResult = {
+    errors: [],
+    accountUsed: '',
+    imported: { added: [], updated: [] },
+    categoriesApplied: 0,
+  };
+
+  try {
+    // Load settings from import_settings.json
+    const importSettings = await getImportSettings();
+    const accountName = importSettings.kantonalbank_account;
+
+    if (!accountName) {
+      result.errors.push({
+        message:
+          'Kantonalbank account not configured. Please configure import settings.',
+      });
+      return result;
+    }
+
+    result.accountUsed = accountName;
+
+    // Find or create account
+    const existingAccount = await db.first<db.DbAccount>(
+      'SELECT id FROM accounts WHERE name = ? AND tombstone = 0',
+      [accountName],
+    );
+
+    let accountId: AccountEntity['id'];
+    if (existingAccount) {
+      accountId = existingAccount.id;
+    } else {
+      if (isPreview) {
+        return result;
+      }
+      accountId = await findOrCreateAccount(accountName, false);
+      logger.info(`Created Kantonalbank account: ${accountName}`);
+    }
+
+    // Load payee-category mapping and apply to transactions
+    const payeeMapping = await getSwissBankPayeeMapping({});
+    if (Object.keys(payeeMapping).length > 0) {
+      for (const txn of transactions) {
+        if (!txn.category) {
+          const isExpense =
+            typeof txn.amount === 'number' ? txn.amount < 0 : true;
+          const categoryId = await getCategoryForPayee(
+            txn.payee_name || txn.imported_payee,
+            payeeMapping,
+            isExpense,
+          );
+          if (categoryId) {
+            txn.category = categoryId;
+            result.categoriesApplied++;
+          }
+        }
+      }
+      logger.info(
+        `Applied payee-category mapping: ${result.categoriesApplied} categorized`,
+      );
+    }
+
+    // Import transactions to this account
+    const reconciled = await bankSync.reconcileTransactions(
+      accountId,
+      transactions,
+      false,
+      true,
+      isPreview,
+    );
+
+    result.imported = {
+      added: reconciled.added,
+      updated: reconciled.updated,
+    };
+
+    logger.info(
+      `Kantonalbank import to ${accountName}: ${reconciled.added.length} added, ${reconciled.updated.length} updated`,
+    );
+
+    return result;
+  } catch (err) {
+    if (err instanceof TransactionError) {
+      result.errors.push({ message: err.message });
+      return result;
+    }
+    throw err;
+  }
+}
+
 // =============================================================================
 // Swiss Bank Import Features (matching Python bank_csv_import.py)
 // =============================================================================
@@ -1992,6 +2120,7 @@ type ImportSettings = {
   revolut_bank_account: string; // Bank account for Revolut transfers
   cash_account: string; // Cash account for ATM withdrawals
   revolut_differenz_category: string; // Category for Revolut exchange rate differences (default: Hobby)
+  kantonalbank_account: string; // Account for Kantonalbank XLSX imports
 };
 
 const DEFAULT_IMPORT_SETTINGS: ImportSettings = {
@@ -1999,6 +2128,7 @@ const DEFAULT_IMPORT_SETTINGS: ImportSettings = {
   revolut_bank_account: '',
   cash_account: '',
   revolut_differenz_category: '', // Ask user first time it's needed
+  kantonalbank_account: '',
 };
 
 /**
@@ -2133,7 +2263,9 @@ async function matchPayeesToCategories({
 }): Promise<PayeeMatchOutput[]> {
   const mapping = await getSwissBankPayeeMapping({});
   const mappingKeys = Object.keys(mapping);
-  logger.info(`[matchPayees] Mapping has ${mappingKeys.length} entries: ${mappingKeys.slice(0, 5).join(', ')}${mappingKeys.length > 5 ? '...' : ''}`);
+  logger.info(
+    `[matchPayees] Mapping has ${mappingKeys.length} entries: ${mappingKeys.slice(0, 5).join(', ')}${mappingKeys.length > 5 ? '...' : ''}`,
+  );
 
   const results: PayeeMatchOutput[] = [];
 
@@ -2142,7 +2274,9 @@ async function matchPayeesToCategories({
     const matchResult = await getPayeeMatchResult(payee, mapping, isExpense);
 
     if (matchResult.matchScore > 0) {
-      logger.info(`[matchPayees] "${payee}" -> score=${matchResult.matchScore.toFixed(2)}, matched="${matchResult.matchedPayee}", category="${matchResult.categoryString}"`);
+      logger.info(
+        `[matchPayees] "${payee}" -> score=${matchResult.matchScore.toFixed(2)}, matched="${matchResult.matchedPayee}", category="${matchResult.categoryString}"`,
+      );
     }
 
     results.push({
@@ -2204,7 +2338,9 @@ async function addPayeeMappings({
   // Note: We no longer auto-save payee mappings during import
   // Users can manually manage mappings via LearnCategoriesModal if needed
   if (added > 0) {
-    logger.info(`Would have added ${added} new payee-category mappings (auto-save disabled)`);
+    logger.info(
+      `Would have added ${added} new payee-category mappings (auto-save disabled)`,
+    );
   }
 
   return { added, skipped };
@@ -2230,11 +2366,14 @@ async function ensureCategoriesExist({
   const groupCache = new Map<string, { id: string; name: string }>();
 
   // Get unique category strings and normalize them
-  const uniqueCategories = [...new Set(categories.filter(c => c && c.includes(':')))];
+  const uniqueCategories = [
+    ...new Set(categories.filter(c => c && c.includes(':'))),
+  ];
 
   // Helper to normalize strings for comparison (handle umlauts)
   const normalizeForCompare = (s: string): string =>
-    s.toLowerCase()
+    s
+      .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
       .trim();
@@ -2267,9 +2406,13 @@ async function ensureCategoriesExist({
         group = { id: groupId, name: groupName };
         groupCache.set(groupKey, group);
         createdGroups.push(groupName);
-        logger.info(`[ensureCategoriesExist] Created category group: "${groupName}"`);
+        logger.info(
+          `[ensureCategoriesExist] Created category group: "${groupName}"`,
+        );
       } catch (err) {
-        logger.warn(`[ensureCategoriesExist] Failed to create category group "${groupName}": ${err}`);
+        logger.warn(
+          `[ensureCategoriesExist] Failed to create category group "${groupName}": ${err}`,
+        );
         continue;
       }
     } else {
@@ -2283,22 +2426,30 @@ async function ensureCategoriesExist({
       'SELECT id, name FROM categories WHERE cat_group = ? AND tombstone = 0',
       [group.id],
     );
-    const existingCategory = allCategoriesInGroup.find(c => normalizeForCompare(c.name) === categoryKey);
+    const existingCategory = allCategoriesInGroup.find(
+      c => normalizeForCompare(c.name) === categoryKey,
+    );
 
     // Create category if it doesn't exist
     if (!existingCategory) {
       try {
         await db.insertCategory({ name: categoryName, cat_group: group.id });
         createdCategories.push(`${groupName}:${categoryName}`);
-        logger.info(`[ensureCategoriesExist] Created category: "${groupName}:${categoryName}"`);
+        logger.info(
+          `[ensureCategoriesExist] Created category: "${groupName}:${categoryName}"`,
+        );
       } catch (err) {
-        logger.warn(`[ensureCategoriesExist] Failed to create category "${groupName}:${categoryName}": ${err}`);
+        logger.warn(
+          `[ensureCategoriesExist] Failed to create category "${groupName}:${categoryName}": ${err}`,
+        );
       }
     }
   }
 
   if (createdGroups.length > 0 || createdCategories.length > 0) {
-    logger.info(`[ensureCategoriesExist] Summary: Created ${createdGroups.length} groups, ${createdCategories.length} categories`);
+    logger.info(
+      `[ensureCategoriesExist] Summary: Created ${createdGroups.length} groups, ${createdCategories.length} categories`,
+    );
   }
 
   return { createdGroups, createdCategories };
@@ -2369,13 +2520,16 @@ async function learnCategoriesFromTransactions({
     `;
 
   const rows = accountId
-    ? await db.all<{ payee_name: string; cat_name: string; total_amount: number }>(
-        queryWithAmount,
-        [accountId],
-      )
-    : await db.all<{ payee_name: string; cat_name: string; total_amount: number }>(
-        queryWithAmount,
-      );
+    ? await db.all<{
+        payee_name: string;
+        cat_name: string;
+        total_amount: number;
+      }>(queryWithAmount, [accountId])
+    : await db.all<{
+        payee_name: string;
+        cat_name: string;
+        total_amount: number;
+      }>(queryWithAmount);
 
   const mapping: PayeeCategoryMapping = {};
   for (const row of rows) {
@@ -2801,6 +2955,10 @@ app.method(
 app.method(
   'transactions-import-migros',
   mutator(undoable(importMigrosTransactions)),
+);
+app.method(
+  'transactions-import-kantonalbank',
+  mutator(undoable(importKantonalbankTransactions)),
 );
 app.method('account-unlink', mutator(unlinkAccount));
 // Swiss bank import features
