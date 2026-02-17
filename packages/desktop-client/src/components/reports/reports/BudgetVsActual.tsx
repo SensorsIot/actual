@@ -18,6 +18,7 @@ import {
   type RuleConditionEntity,
   type TimeFrame,
 } from 'loot-core/types/models';
+
 import { MobileBackButton } from '@desktop-client/components/mobile/MobileBackButton';
 import {
   MobilePageHeader,
@@ -28,8 +29,8 @@ import { PrivacyFilter } from '@desktop-client/components/PrivacyFilter';
 import { BudgetVsActualTable } from '@desktop-client/components/reports/graphs/BudgetVsActualTable';
 import { Header } from '@desktop-client/components/reports/Header';
 import { LoadingIndicator } from '@desktop-client/components/reports/LoadingIndicator';
-import { SavedReportsSelector } from '@desktop-client/components/reports/SavedReportsSelector';
 import { calculateTimeRange } from '@desktop-client/components/reports/reportRanges';
+import { SavedReportsSelector } from '@desktop-client/components/reports/SavedReportsSelector';
 import {
   createBudgetVsActualSpreadsheet,
   type BudgetVsActualData,
@@ -40,9 +41,9 @@ import { useFormat } from '@desktop-client/hooks/useFormat';
 import { useLocale } from '@desktop-client/hooks/useLocale';
 import { useNavigate } from '@desktop-client/hooks/useNavigate';
 import { useRuleConditionFilters } from '@desktop-client/hooks/useRuleConditionFilters';
+import { type SavedReportConfig } from '@desktop-client/hooks/useSavedReports';
 import { useSyncedPref } from '@desktop-client/hooks/useSyncedPref';
 import { useWidget } from '@desktop-client/hooks/useWidget';
-import { type SavedReportConfig } from '@desktop-client/hooks/useSavedReports';
 
 export const defaultTimeFrame = {
   start: monthUtils.currentMonth(),
@@ -97,9 +98,7 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
   const [showHiddenCategories, setShowHiddenCategories] = useState(
     widget?.meta?.showHiddenCategories ?? false,
   );
-  const [showIncomeCategories, setShowIncomeCategories] = useState(
-    widget?.meta?.showIncomeCategories ?? false,
-  );
+  const showIncomeCategories = true;
   const [latestTransaction, setLatestTransaction] = useState('');
   const [earliestTransaction, setEarliestTransaction] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -185,7 +184,16 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
         showIncomeCategories,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [start, end, categories, conditions, conditionsOp, showHiddenCategories, showIncomeCategories, refreshKey],
+    [
+      start,
+      end,
+      categories,
+      conditions,
+      conditionsOp,
+      showHiddenCategories,
+      showIncomeCategories,
+      refreshKey,
+    ],
   );
 
   const data = useReport<BudgetVsActualData>('budget-vs-actual', getGraphData);
@@ -208,9 +216,6 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
     }
     if (config.showHiddenCategories !== undefined) {
       setShowHiddenCategories(config.showHiddenCategories);
-    }
-    if (config.showIncomeCategories !== undefined) {
-      setShowIncomeCategories(config.showIncomeCategories);
     }
   };
 
@@ -259,15 +264,6 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
               : t('Show hidden categories')}
           </Button>
 
-          <Button
-            onPress={() => setShowIncomeCategories(state => !state)}
-            variant={showIncomeCategories ? 'primary' : 'normal'}
-          >
-            {showIncomeCategories
-              ? t('Hide income')
-              : t('Show income')}
-          </Button>
-
           <View
             style={{
               height: 'auto',
@@ -285,7 +281,6 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
               end,
               mode,
               showHiddenCategories,
-              showIncomeCategories,
               conditions,
               conditionsOp,
             }}
@@ -366,7 +361,10 @@ function BudgetVsActualInternal({ widget }: BudgetVsActualInternalProps) {
           />
         </View>
 
-        <BudgetVsActualTable data={data} onTransactionChange={handleTransactionChange} />
+        <BudgetVsActualTable
+          data={data}
+          onTransactionChange={handleTransactionChange}
+        />
       </View>
     </Page>
   );

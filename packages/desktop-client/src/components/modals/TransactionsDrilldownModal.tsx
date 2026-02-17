@@ -7,13 +7,17 @@ import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
 import { send } from 'loot-core/platform/client/fetch';
-import { q } from 'loot-core/shared/query';
 import * as monthUtils from 'loot-core/shared/months';
+import { q } from 'loot-core/shared/query';
 import { type TransactionEntity } from 'loot-core/types/models';
 
-import { Modal, ModalCloseButton, ModalHeader } from '@desktop-client/components/common/Modal';
+import {
+  Modal,
+  ModalCloseButton,
+  ModalHeader,
+} from '@desktop-client/components/common/Modal';
 import { PrivacyFilter } from '@desktop-client/components/PrivacyFilter';
-import { Row, Cell, Field, Table } from '@desktop-client/components/table';
+import { Cell, Field, Row, Table } from '@desktop-client/components/table';
 import { DisplayId } from '@desktop-client/components/util/DisplayId';
 import { useCategories } from '@desktop-client/hooks/useCategories';
 import { useDateFormat } from '@desktop-client/hooks/useDateFormat';
@@ -38,18 +42,30 @@ function CategoryDisplay({ id }: { id: string | null }) {
   const { list: categories, grouped } = useCategories();
 
   if (!id) {
-    return <span style={{ color: theme.pageTextSubdued }}>{t('Uncategorized')}</span>;
+    return (
+      <span style={{ color: theme.pageTextSubdued }}>
+        <Trans>Uncategorized</Trans>
+      </span>
+    );
   }
 
   const category = categories.find(c => c.id === id);
   if (!category) {
-    return <span style={{ color: theme.pageTextSubdued }}>{t('Uncategorized')}</span>;
+    return (
+      <span style={{ color: theme.pageTextSubdued }}>
+        <Trans>Uncategorized</Trans>
+      </span>
+    );
   }
 
   // Find the group for this category
   const group = grouped.find(g => g.categories?.some(c => c.id === id));
   if (group) {
-    return <span>{group.name}: {category.name}</span>;
+    return (
+      <span>
+        {group.name}: {category.name}
+      </span>
+    );
   }
 
   return <span>{category.name}</span>;
@@ -88,7 +104,15 @@ export function TransactionsDrilldownModal({
               { date: { $lte: endDate } },
             ],
           })
-          .select(['id', 'date', 'payee', 'notes', 'amount', 'account', 'category'])
+          .select([
+            'id',
+            'date',
+            'payee',
+            'notes',
+            'amount',
+            'account',
+            'category',
+          ])
           .options({ splits: 'inline' });
 
         const { data } = await aqlQuery(query);
@@ -151,7 +175,7 @@ export function TransactionsDrilldownModal({
       onClose={onClose}
       containerProps={{
         style: {
-          width: 1000,
+          width: 1200,
           maxWidth: '95vw',
         },
       }}
@@ -191,7 +215,7 @@ export function TransactionsDrilldownModal({
                   <Field width={100}>
                     <Trans>Date</Trans>
                   </Field>
-                  <Field width={200}>
+                  <Field width={350}>
                     <Trans>Payee</Trans>
                   </Field>
                   <Field width={250}>
@@ -210,7 +234,11 @@ export function TransactionsDrilldownModal({
                   <Field width={100}>
                     {monthUtils.format(transaction.date, dateFormat)}
                   </Field>
-                  <Cell width={200} exposed style={{ alignItems: 'flex-start' }}>
+                  <Cell
+                    width={350}
+                    exposed
+                    style={{ alignItems: 'flex-start' }}
+                  >
                     {() =>
                       transaction.payee ? (
                         <DisplayId type="payees" id={transaction.payee} />
