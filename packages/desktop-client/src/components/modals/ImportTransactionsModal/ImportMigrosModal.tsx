@@ -216,6 +216,7 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
           payee_name: trans.payee_name,
           notes: trans.notes,
           category: trans.category,
+          trx_id: trans.trx_id,
         })),
         isPreview: true,
       });
