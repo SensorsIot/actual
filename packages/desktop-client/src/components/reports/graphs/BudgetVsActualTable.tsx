@@ -133,11 +133,14 @@ export function BudgetVsActualTable({
     monthlyData: Record<string, MonthlyBudgetActual>,
     categoryId?: string,
     categoryName?: string,
-    negate?: boolean,
+    isExpense?: boolean,
   ) => {
     return data.months.map(month => {
       const monthData = monthlyData[month] || { budgeted: 0, actual: 0 };
-      const sign = negate ? -1 : 1;
+      // Expense budgets are already positive in reflect_budgets;
+      // expense actuals are negative in transactions, so negate to show positive
+      const displayBudgeted = monthData.budgeted;
+      const displayActual = isExpense ? -monthData.actual : monthData.actual;
       const isClickable = categoryId && categoryName;
       return (
         <View
@@ -149,7 +152,7 @@ export function BudgetVsActualTable({
         >
           <Cell width={monthAmountWidth} plain style={{ textAlign: 'right' }}>
             <PrivacyFilter>
-              {format(monthData.budgeted * sign, 'financial')}
+              {format(displayBudgeted, 'financial')}
             </PrivacyFilter>
           </Cell>
           <Cell
@@ -169,7 +172,7 @@ export function BudgetVsActualTable({
             }
           >
             <PrivacyFilter>
-              {format(monthData.actual * sign, 'financial')}
+              {format(displayActual, 'financial')}
             </PrivacyFilter>
           </Cell>
         </View>
@@ -253,9 +256,11 @@ export function BudgetVsActualTable({
                 !group.isIncome,
               )}
               {(() => {
-                const sign = group.isIncome ? 1 : -1;
-                const displayBudgeted = group.budgeted * sign;
-                const displayActual = group.actual * sign;
+                const isExpense = !group.isIncome;
+                const displayBudgeted = group.budgeted;
+                const displayActual = isExpense
+                  ? -group.actual
+                  : group.actual;
                 const displayVariance = displayActual - displayBudgeted;
                 return (
                   <>
@@ -300,9 +305,11 @@ export function BudgetVsActualTable({
             {/* Categories */}
             {expandedGroups.has(group.id) &&
               group.categories.map(category => {
-                const sign = group.isIncome ? 1 : -1;
-                const displayBudgeted = category.budgeted * sign;
-                const displayActual = category.actual * sign;
+                const isExpense = !group.isIncome;
+                const displayBudgeted = category.budgeted;
+                const displayActual = isExpense
+                  ? -category.actual
+                  : category.actual;
                 const displayVariance = displayActual - displayBudgeted;
                 return (
                   <Row key={category.id}>
