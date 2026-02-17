@@ -197,7 +197,13 @@ export function YearlyBudgetPlanner() {
     } finally {
       setSaving(false);
     }
-  }, [hasUnsavedChanges, editedBudgets, year, categories, showHiddenCategories]);
+  }, [
+    hasUnsavedChanges,
+    editedBudgets,
+    year,
+    categories,
+    showHiddenCategories,
+  ]);
 
   const title = hasUnsavedChanges
     ? `${t('Yearly Budget Planner')} *`

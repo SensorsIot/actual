@@ -6,7 +6,7 @@ import { View } from '@actual-app/components/view';
 
 import { PrivacyFilter } from '@desktop-client/components/PrivacyFilter';
 import { type CurrentAssetValueData } from '@desktop-client/components/reports/spreadsheets/current-asset-value-spreadsheet';
-import { Row, Cell } from '@desktop-client/components/table';
+import { Cell, Row } from '@desktop-client/components/table';
 import { useFormat } from '@desktop-client/hooks/useFormat';
 
 type CurrentAssetValueTableProps = {

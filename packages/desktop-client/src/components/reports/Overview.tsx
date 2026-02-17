@@ -27,11 +27,6 @@ import { NON_DRAGGABLE_AREA_CLASS_NAME } from './constants';
 // Import custom widget registrations - this registers them with the widget registry
 import './customWidgetRegistrations';
 import { DashboardHeader } from './DashboardHeader';
-import {
-  getWidgetMenuItems,
-  isRegisteredWidget,
-  renderRegisteredWidget,
-} from './widgetRegistry';
 import { DashboardSelector } from './DashboardSelector';
 import { LoadingIndicator } from './LoadingIndicator';
 import { CalendarCard } from './reports/CalendarCard';
@@ -42,8 +37,13 @@ import { FormulaCard } from './reports/FormulaCard';
 import { MarkdownCard } from './reports/MarkdownCard';
 import { NetWorthCard } from './reports/NetWorthCard';
 import { SpendingCard } from './reports/SpendingCard';
-import './overview.scss';
 import { SummaryCard } from './reports/SummaryCard';
+import './overview.scss';
+import {
+  getWidgetMenuItems,
+  isRegisteredWidget,
+  renderRegisteredWidget,
+} from './widgetRegistry';
 
 import { MOBILE_NAV_HEIGHT } from '@desktop-client/components/mobile/MobileNavTabs';
 import { MobilePageHeader, Page } from '@desktop-client/components/Page';

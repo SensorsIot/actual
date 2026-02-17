@@ -142,7 +142,13 @@ export function SavedReportsSelector({
             }}
             autoFocus
           />
-          <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'flex-end' }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              gap: 10,
+              justifyContent: 'flex-end',
+            }}
+          >
             <Button variant="normal" onPress={() => setSaveMenuOpen(false)}>
               <Trans>Cancel</Trans>
             </Button>

@@ -7,15 +7,15 @@ import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
 import * as monthUtils from 'loot-core/shared/months';
-import { integerToCurrency, currencyToInteger } from 'loot-core/shared/util';
+import { currencyToInteger, integerToCurrency } from 'loot-core/shared/util';
 
 import { PrivacyFilter } from '@desktop-client/components/PrivacyFilter';
 import {
-  type YearlyBudgetPlannerData,
-  type YearlyBudgetGroupData,
   type YearlyBudgetCategoryData,
+  type YearlyBudgetGroupData,
+  type YearlyBudgetPlannerData,
 } from '@desktop-client/components/reports/spreadsheets/yearly-budget-planner-spreadsheet';
-import { Row, Cell } from '@desktop-client/components/table';
+import { Cell, Row } from '@desktop-client/components/table';
 import { useFormat } from '@desktop-client/hooks/useFormat';
 import { useLocale } from '@desktop-client/hooks/useLocale';
 
@@ -121,7 +121,9 @@ export function YearlyBudgetPlannerTable({
   // Get the current value for a category/month (edited or original)
   const getBudgetValue = useCallback(
     (category: YearlyBudgetCategoryData, month: string): number => {
-      return editedBudgets[category.id]?.[month] ?? category.monthBudgets[month] ?? 0;
+      return (
+        editedBudgets[category.id]?.[month] ?? category.monthBudgets[month] ?? 0
+      );
     },
     [editedBudgets],
   );
@@ -195,7 +197,9 @@ export function YearlyBudgetPlannerTable({
         style={{
           textAlign: 'right',
           padding: isEditing ? '0 2px' : undefined,
-          backgroundColor: isModified ? theme.tableRowBackgroundHover : undefined,
+          backgroundColor: isModified
+            ? theme.tableRowBackgroundHover
+            : undefined,
         }}
       >
         {isEditing ? (
@@ -355,11 +359,7 @@ export function YearlyBudgetPlannerTable({
                       isModified,
                     );
                   })}
-                  <Cell
-                    width={totalWidth}
-                    plain
-                    style={{ textAlign: 'right' }}
-                  >
+                  <Cell width={totalWidth} plain style={{ textAlign: 'right' }}>
                     <PrivacyFilter>
                       {format(rowTotal, 'financial')}
                     </PrivacyFilter>
@@ -448,7 +448,9 @@ export function YearlyBudgetPlannerTable({
                   plain
                   style={{ textAlign: 'right' }}
                 >
-                  <PrivacyFilter>{format(monthTotal, 'financial')}</PrivacyFilter>
+                  <PrivacyFilter>
+                    {format(monthTotal, 'financial')}
+                  </PrivacyFilter>
                 </Cell>
               );
             })}
@@ -488,7 +490,9 @@ export function YearlyBudgetPlannerTable({
                   plain
                   style={{ textAlign: 'right' }}
                 >
-                  <PrivacyFilter>{format(monthTotal, 'financial')}</PrivacyFilter>
+                  <PrivacyFilter>
+                    {format(monthTotal, 'financial')}
+                  </PrivacyFilter>
                 </Cell>
               );
             })}

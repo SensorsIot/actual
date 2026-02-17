@@ -36,7 +36,9 @@ export function LearnCategoriesModal({
       const result = await send('swiss-bank-learn-categories', {});
       if (result && result.mapping && result.count > 0) {
         // Save the learned mapping to the file
-        await send('swiss-bank-save-payee-mapping', { mapping: result.mapping });
+        await send('swiss-bank-save-payee-mapping', {
+          mapping: result.mapping,
+        });
         count = result.count;
         setLearnedCount(count);
         console.log(`Learned and saved ${count} payee-category mappings`);
@@ -52,17 +54,22 @@ export function LearnCategoriesModal({
     setIsLearning(false);
 
     // Brief delay to show the result, then close and call callback
-    setTimeout(() => {
-      close();
-      onLearn?.();
-    }, count > 0 ? 1000 : 100);
+    setTimeout(
+      () => {
+        close();
+        onLearn?.();
+      },
+      count > 0 ? 1000 : 100,
+    );
   }
 
   async function handleSkip(close: () => void) {
     // Save a marker so the modal doesn't appear again
     // Using a special key that won't conflict with real payee names
     try {
-      await send('swiss-bank-save-payee-mapping', { mapping: { '_skip_learn': { expense: 'skipped' } } });
+      await send('swiss-bank-save-payee-mapping', {
+        mapping: { _skip_learn: { expense: 'skipped' } },
+      });
       console.log('Skipped learning, saved marker');
     } catch (err) {
       console.error('Failed to save skip marker:', err);
@@ -77,7 +84,9 @@ export function LearnCategoriesModal({
         <>
           <ModalHeader
             title={t('Learn Categories')}
-            rightContent={<ModalCloseButton onPress={() => handleSkip(close)} />}
+            rightContent={
+              <ModalCloseButton onPress={() => handleSkip(close)} />
+            }
           />
           <View style={{ padding: '0 15px 15px 15px' }}>
             {learnedCount === null ? (
@@ -89,9 +98,9 @@ export function LearnCategoriesModal({
                 </Paragraph>
                 <Paragraph style={{ marginBottom: 20 }}>
                   <Trans>
-                    Would you like to learn payee-category associations from your
-                    existing categorized transactions? This will help auto-fill
-                    categories for future imports.
+                    Would you like to learn payee-category associations from
+                    your existing categorized transactions? This will help
+                    auto-fill categories for future imports.
                   </Trans>
                 </Paragraph>
                 <View
@@ -101,7 +110,10 @@ export function LearnCategoriesModal({
                     gap: 10,
                   }}
                 >
-                  <Button onPress={() => handleSkip(close)} isDisabled={isLearning}>
+                  <Button
+                    onPress={() => handleSkip(close)}
+                    isDisabled={isLearning}
+                  >
                     <Trans>Skip</Trans>
                   </Button>
                   <ButtonWithLoading
@@ -118,13 +130,20 @@ export function LearnCategoriesModal({
                 <Text
                   style={{
                     fontSize: 16,
-                    color: learnedCount > 0 ? theme.noticeTextLight : theme.pageTextSubdued,
+                    color:
+                      learnedCount > 0
+                        ? theme.noticeTextLight
+                        : theme.pageTextSubdued,
                   }}
                 >
                   {learnedCount > 0 ? (
-                    <Trans>Learned {{ count: learnedCount }} category mappings!</Trans>
+                    <Trans>
+                      Learned {{ count: learnedCount }} category mappings!
+                    </Trans>
                   ) : (
-                    <Trans>No categorized transactions found to learn from.</Trans>
+                    <Trans>
+                      No categorized transactions found to learn from.
+                    </Trans>
                   )}
                 </Text>
               </View>

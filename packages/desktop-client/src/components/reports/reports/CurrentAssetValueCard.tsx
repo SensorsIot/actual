@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 
 import { Block } from '@actual-app/components/block';
 import { styles } from '@actual-app/components/styles';
@@ -164,10 +164,12 @@ export function CurrentAssetValueCard({
               }}
             >
               <View style={{ fontWeight: 600 }}>
-                <Block>{t('Group')}</Block>
+                <Block>
+                  <Trans>Group</Trans>
+                </Block>
               </View>
               <View style={{ fontWeight: 600, textAlign: 'right' }}>
-                <Block>{t('Balance')}</Block>
+                <Block><Trans>Balance</Trans></Block>
               </View>
 
               {data.groups.map(group => (

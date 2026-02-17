@@ -17,7 +17,6 @@ import {
   type FieldMapping,
   type ImportTransaction,
 } from '@desktop-client/components/modals/ImportTransactionsModal/utils';
-
 import {
   TableHeader,
   TableWithNavigator,

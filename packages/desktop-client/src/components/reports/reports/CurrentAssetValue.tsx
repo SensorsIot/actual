@@ -16,6 +16,7 @@ import {
   type CurrentAssetValueWidget,
   type RuleConditionEntity,
 } from 'loot-core/types/models';
+
 import { MobileBackButton } from '@desktop-client/components/mobile/MobileBackButton';
 import {
   MobilePageHeader,

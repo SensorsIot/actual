@@ -284,9 +284,11 @@ export function createBudgetVsActualSpreadsheet({
 
         for (const month of months) {
           if (isIncomeGroup) {
-            totalMonthlyData[month].budgeted += groupMonthlyData[month].budgeted;
+            totalMonthlyData[month].budgeted +=
+              groupMonthlyData[month].budgeted;
           } else {
-            totalMonthlyData[month].budgeted -= groupMonthlyData[month].budgeted;
+            totalMonthlyData[month].budgeted -=
+              groupMonthlyData[month].budgeted;
           }
           totalMonthlyData[month].actual += groupMonthlyData[month].actual;
         }

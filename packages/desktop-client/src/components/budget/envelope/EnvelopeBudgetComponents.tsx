@@ -21,12 +21,14 @@ import { css } from '@emotion/css';
 
 import * as monthUtils from 'loot-core/shared/months';
 
-import { type CategoryGroupMonthProps, type CategoryMonthProps } from '..';
-
 import { BalanceMovementMenu } from './BalanceMovementMenu';
 import { BudgetMenu } from './BudgetMenu';
 import { IncomeMenu } from './IncomeMenu';
 
+import {
+  type CategoryGroupMonthProps,
+  type CategoryMonthProps,
+} from '@desktop-client/components';
 import { BalanceWithCarryover } from '@desktop-client/components/budget/BalanceWithCarryover';
 import { makeAmountGrey } from '@desktop-client/components/budget/util';
 import {

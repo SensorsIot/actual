@@ -132,20 +132,24 @@ When importing a file via `Account.tsx`:
 ### Revolut transaction classification
 
 **1. Payment** (Revolut → Payee, no linking)
+
 - card_payment, card_refund, cashback, refund, reward, fee, topup
 - transfer (without "SWIFT Transfer to" in description)
 
 **2. Transfer** (Revolut → Bank/Kasse, create counter-transaction)
+
 - ATM → Kasse (convert to CHF, always create counter)
 - transfer with "SWIFT Transfer to" → Migros Bank (check for existing first to avoid duplicates)
 
 Note: Only Revolut → Migros transfers are detected (via "SWIFT Transfer to" pattern). Migros → Revolut topups do not have a detectable pattern in the Revolut CSV, so all topups are treated as payments.
 
 **3. Exchange** (Revolut ↔ Revolut, create counter-transaction)
+
 - exchange → Revolut {TARGET_CURRENCY}
 - Use converted CHF amount to record transaction (neutral exchange)
 
 **4. Skip**
+
 - TEMP_BLOCK
 
 ### Multi-currency handling
@@ -182,6 +186,7 @@ SWIFT transfers appear in both Revolut and Migros CSVs. To avoid duplicates:
 3. If not found: creates new counter-transaction
 
 This handles both import orders:
+
 - **Revolut first**: Creates counter in Migros. Later Migros import sees existing linked transaction.
 - **Migros first**: Creates transaction. Later Revolut import finds and links to it.
 
@@ -190,7 +195,7 @@ This handles both import orders:
 - The importer can reconcile the summed balance of all Revolut accounts against the user-entered total.
 - If a difference exists, it books a correction transaction to `Revolut CHF` using the configured category.
 - If the category is missing, a prompt allows the user to select one and save it.
- - The prompt includes Skip and Book actions and persists the selected category.
+- The prompt includes Skip and Book actions and persists the selected category.
 
 ### UI behavior (Revolut)
 
@@ -260,11 +265,13 @@ SELECT id, name FROM payees WHERE transfer_acct = '<revolut_chf_account_id>';
 ### Common mistake: Using string format instead of UUID
 
 **Wrong** (causes "uncategorized" display):
+
 ```
 description: "transfer:54f94903-fcd0-4afc-8df8-25e4e3e7c5d8"  ← Invalid!
 ```
 
 **Correct**:
+
 ```
 description: "586a4b7b-5ebd-459b-9326-4eb40296d2b9"  ← UUID of transfer payee
 ```
@@ -275,21 +282,21 @@ The parser (`parse-file.ts`) classifies transactions and sets `transfer_account`
 
 **Revolut** (`classifyRevolutTransaction`) - uses switch-case on `art.toLowerCase()`:
 
-| Case | Internal Type | `transferAccount` | Category |
-|------|---------------|-------------------|----------|
-| `card payment`, `kartenzahlung` | `payment` | `null` | Payment |
-| `card refund` | `payment` | `null` | Payment |
-| `cashback` | `payment` | `null` | Payment |
-| `refund` | `payment` | `null` | Payment |
-| `reward` | `payment` | `null` | Payment |
-| `fee` | `payment` | `null` | Payment |
-| `topup`, `top-up` | `payment` | `null` | Payment |
-| `transfer` (no "SWIFT Transfer to") | `payment` | `null` | Payment |
-| `transfer` (with "SWIFT Transfer to") | `swift_transfer` | `'BANK'` | Transfer |
-| `atm` | `atm` | `'Kasse'` | Transfer |
-| `exchange` | `exchange` | `'Revolut {TARGET}'` | Exchange |
-| `temp_block` | `temp_block` | `null` | Skip |
-| (default) | `payment` | `null` | Payment |
+| Case                                  | Internal Type    | `transferAccount`    | Category |
+| ------------------------------------- | ---------------- | -------------------- | -------- |
+| `card payment`, `kartenzahlung`       | `payment`        | `null`               | Payment  |
+| `card refund`                         | `payment`        | `null`               | Payment  |
+| `cashback`                            | `payment`        | `null`               | Payment  |
+| `refund`                              | `payment`        | `null`               | Payment  |
+| `reward`                              | `payment`        | `null`               | Payment  |
+| `fee`                                 | `payment`        | `null`               | Payment  |
+| `topup`, `top-up`                     | `payment`        | `null`               | Payment  |
+| `transfer` (no "SWIFT Transfer to")   | `payment`        | `null`               | Payment  |
+| `transfer` (with "SWIFT Transfer to") | `swift_transfer` | `'BANK'`             | Transfer |
+| `atm`                                 | `atm`            | `'Kasse'`            | Transfer |
+| `exchange`                            | `exchange`       | `'Revolut {TARGET}'` | Exchange |
+| `temp_block`                          | `temp_block`     | `null`               | Skip     |
+| (default)                             | `payment`        | `null`               | Payment  |
 
 **Migros Bank** (`classifyMigrosTransaction`):
 | Transaction Type | Detection Pattern | `transferAccount` |
@@ -310,6 +317,7 @@ The import handlers (`importRevolutTransactions`, `importMigrosTransactions` in 
    - After main import, processes transactions with `transfer_account` set
 
 3. **Transfer creation** (for each transfer transaction):
+
    ```
    a. Find or create target account by name
    b. Get targetTransferPayee (payee for target account)
@@ -330,6 +338,7 @@ The import handlers (`importRevolutTransactions`, `importMigrosTransactions` in 
 ### Category handling for transfers
 
 Transfer-type transactions are excluded from category auto-matching:
+
 - Transfer types: `['swift_transfer', 'atm', 'exchange']`
 - These transactions get their payee set to a transfer payee instead
 - Transfers don't need categories in Actual Budget
@@ -337,11 +346,13 @@ Transfer-type transactions are excluded from category auto-matching:
 ### Skipped transaction types
 
 The following transaction types are skipped entirely during import:
+
 - `temp_block` - Authorization holds (not imported)
 
 ### Import result types
 
 **RevolutImportResult**:
+
 ```typescript
 {
   errors: Array<{ message: string }>;
@@ -353,6 +364,7 @@ The following transaction types are skipped entirely during import:
 ```
 
 **MigrosImportResult**:
+
 ```typescript
 {
   errors: Array<{ message: string }>;
@@ -387,24 +399,26 @@ The following transaction types are skipped entirely during import:
 
 ## Appendix D - Implementation Files
 
-| Component | File Path |
-|-----------|-----------|
-| Parser & format detection | `packages/loot-core/src/server/transactions/import/parse-file.ts` |
-| Import handlers | `packages/loot-core/src/server/accounts/app.ts` |
-| Revolut modal | `packages/desktop-client/src/components/modals/ImportRevolutModal.tsx` |
-| Migros modal | `packages/desktop-client/src/components/modals/ImportMigrosModal.tsx` |
-| Shared hooks | `packages/desktop-client/src/components/modals/hooks/useSwissBankImport.ts` |
-| Transaction list | `packages/desktop-client/src/components/modals/components/TransactionList.tsx` |
+| Component                 | File Path                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------ |
+| Parser & format detection | `packages/loot-core/src/server/transactions/import/parse-file.ts`              |
+| Import handlers           | `packages/loot-core/src/server/accounts/app.ts`                                |
+| Revolut modal             | `packages/desktop-client/src/components/modals/ImportRevolutModal.tsx`         |
+| Migros modal              | `packages/desktop-client/src/components/modals/ImportMigrosModal.tsx`          |
+| Shared hooks              | `packages/desktop-client/src/components/modals/hooks/useSwissBankImport.ts`    |
+| Transaction list          | `packages/desktop-client/src/components/modals/components/TransactionList.tsx` |
 
 ### Key functions
 
 **parse-file.ts**:
+
 - `classifyRevolutTransaction()` - Classifies Revolut transaction types and sets `transferAccount`
 - `classifyMigrosTransaction()` - Classifies Migros transaction types and sets `transferAccount`
 - `parseRevolutCSV()` - Parses Revolut CSV with multi-currency support
 - `parseMigrosCSV()` - Parses Migros Bank CSV
 
 **app.ts**:
+
 - `importRevolutTransactions()` - Imports Revolut transactions with transfer linking
 - `importMigrosTransactions()` - Imports Migros transactions with transfer linking
 - `findOrCreateAccount()` - Creates accounts if they don't exist (used for Kasse, etc.)

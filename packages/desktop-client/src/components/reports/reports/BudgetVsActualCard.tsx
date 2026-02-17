@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 
 import { Block } from '@actual-app/components/block';
 import { styles } from '@actual-app/components/styles';
@@ -8,6 +8,8 @@ import { View } from '@actual-app/components/view';
 
 import * as monthUtils from 'loot-core/shared/months';
 import { type BudgetVsActualWidget } from 'loot-core/types/models';
+
+import { defaultTimeFrame } from './BudgetVsActual';
 
 import { PrivacyFilter } from '@desktop-client/components/PrivacyFilter';
 import { DateRange } from '@desktop-client/components/reports/DateRange';
@@ -23,8 +25,6 @@ import { useReport } from '@desktop-client/components/reports/useReport';
 import { useWidgetCopyMenu } from '@desktop-client/components/reports/useWidgetCopyMenu';
 import { useCategories } from '@desktop-client/hooks/useCategories';
 import { useFormat } from '@desktop-client/hooks/useFormat';
-
-import { defaultTimeFrame } from './BudgetVsActual';
 
 type BudgetVsActualCardProps = {
   widgetId: string;
@@ -178,16 +178,18 @@ export function BudgetVsActualCard({
               }}
             >
               <View style={{ fontWeight: 600 }}>
-                <Block>{t('Category')}</Block>
+                <Block>
+                  <Trans>Category</Trans>
+                </Block>
               </View>
               <View style={{ fontWeight: 600, textAlign: 'right' }}>
-                <Block>{t('Budget')}</Block>
+                <Block><Trans>Budget</Trans></Block>
               </View>
               <View style={{ fontWeight: 600, textAlign: 'right' }}>
-                <Block>{t('Actual')}</Block>
+                <Block><Trans>Actual</Trans></Block>
               </View>
               <View style={{ fontWeight: 600, textAlign: 'right' }}>
-                <Block>{t('Var')}</Block>
+                <Block><Trans>Var</Trans></Block>
               </View>
 
               {data.groups.slice(0, 4).map(group => (

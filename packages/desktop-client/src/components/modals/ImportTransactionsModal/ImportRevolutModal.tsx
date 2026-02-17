@@ -1,4 +1,9 @@
-import React, { useCallback, useEffect, useState, type ComponentProps } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useState,
+  type ComponentProps,
+} from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 
 import { Button, ButtonWithLoading } from '@actual-app/components/button';
@@ -16,14 +21,17 @@ import { TransactionList } from './components/TransactionList';
 import { useSwissBankImport } from './hooks/useSwissBankImport';
 import { type ImportTransaction } from './utils';
 
-import { importPreviewTransactions, importRevolutTransactions } from '@desktop-client/accounts/accountsSlice';
+import {
+  importPreviewTransactions,
+  importRevolutTransactions,
+} from '@desktop-client/accounts/accountsSlice';
 import { getCategories } from '@desktop-client/budget/budgetSlice';
 import {
   Modal,
   ModalCloseButton,
   ModalHeader,
 } from '@desktop-client/components/common/Modal';
-import { TableHeader } from '@desktop-client/components/table';
+import { type TableHeader } from '@desktop-client/components/table';
 import { useAccounts } from '@desktop-client/hooks/useAccounts';
 import { useCategories } from '@desktop-client/hooks/useCategories';
 import { useDateFormat } from '@desktop-client/hooks/useDateFormat';
@@ -61,19 +69,29 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
   const { filename, onImported } = options;
 
   // State
-  const [loadingState, setLoadingState] = useState<null | 'parsing' | 'importing'>('parsing');
-  const [error, setError] = useState<{ parsed: boolean; message: string } | null>(null);
+  const [loadingState, setLoadingState] = useState<
+    null | 'parsing' | 'importing'
+  >('parsing');
+  const [error, setError] = useState<{
+    parsed: boolean;
+    message: string;
+  } | null>(null);
   const [transactions, setTransactions] = useState<ImportTransaction[]>([]);
-  const [parsedTransactions, setParsedTransactions] = useState<ImportTransaction[]>([]);
+  const [parsedTransactions, setParsedTransactions] = useState<
+    ImportTransaction[]
+  >([]);
 
   // Import settings
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
-  const [importSettings, setImportSettings] = useState<ImportSettings>(DEFAULT_IMPORT_SETTINGS);
+  const [importSettings, setImportSettings] = useState<ImportSettings>(
+    DEFAULT_IMPORT_SETTINGS,
+  );
 
   // Balance correction
   const [currentRevolutTotal, setCurrentRevolutTotal] = useState<string>('');
   const [showCategoryPrompt, setShowCategoryPrompt] = useState(false);
-  const [selectedDifferenzCategory, setSelectedDifferenzCategory] = useState<string>('');
+  const [selectedDifferenzCategory, setSelectedDifferenzCategory] =
+    useState<string>('');
   const [pendingBalanceCorrection, setPendingBalanceCorrection] = useState<{
     difference: number;
     expectedBalance: number;
@@ -95,13 +113,14 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
     async function parseFile() {
       setLoadingState('parsing');
 
-      const { errors, transactions: parsed = [], metadata } = await send(
-        'transactions-parse-file',
-        {
-          filepath: filename,
-          options: { swissBankFormat: 'revolut' },
-        },
-      );
+      const {
+        errors,
+        transactions: parsed = [],
+        metadata,
+      } = await send('transactions-parse-file', {
+        filepath: filename,
+        options: { swissBankFormat: 'revolut' },
+      });
 
       if (errors.length > 0) {
         setError({ parsed: false, message: errors[0].message });
@@ -111,7 +130,10 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
 
       // Verify this is actually a Revolut file
       if (metadata?.bankFormat !== 'revolut') {
-        setError({ parsed: false, message: t('This file does not appear to be a Revolut export.') });
+        setError({
+          parsed: false,
+          message: t('This file does not appear to be a Revolut export.'),
+        });
         setLoadingState(null);
         return;
       }
@@ -145,26 +167,29 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
 
       // Check for existing payee mapping
       const existingMapping = await send('swiss-bank-get-payee-mapping', {});
-      const mappingIsEmpty = !existingMapping || Object.keys(existingMapping).length === 0;
+      const mappingIsEmpty =
+        !existingMapping || Object.keys(existingMapping).length === 0;
 
       if (mappingIsEmpty && transactionsWithIds.length > 0) {
         // Offer to learn from existing transactions
         setTransactions(transactionsWithIds);
         setLoadingState(null);
 
-        dispatch(pushModal({
-          modal: {
-            name: 'learn-categories',
-            options: {
-              onLearn: () => {
-                fetchCategorySuggestions(transactionsWithIds);
-              },
-              onSkip: () => {
-                // Continue without category suggestions
+        dispatch(
+          pushModal({
+            modal: {
+              name: 'learn-categories',
+              options: {
+                onLearn: () => {
+                  fetchCategorySuggestions(transactionsWithIds);
+                },
+                onSkip: () => {
+                  // Continue without category suggestions
+                },
               },
             },
-          },
-        }));
+          }),
+        );
       } else {
         // Apply category suggestions and run preview
         await runImportPreview(transactionsWithIds);
@@ -176,109 +201,134 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
   }, [filename]);
 
   // Run import preview to detect duplicates
-  const runImportPreview = useCallback(async (transactionsToPreview: ImportTransaction[]) => {
-    // Group transactions by currency
-    const byCurrency = new Map<string, ImportTransaction[]>();
-    for (const trans of transactionsToPreview) {
-      const currency = (trans as { currency?: string }).currency || 'CHF';
-      if (!byCurrency.has(currency)) {
-        byCurrency.set(currency, []);
+  const runImportPreview = useCallback(
+    async (transactionsToPreview: ImportTransaction[]) => {
+      // Group transactions by currency
+      const byCurrency = new Map<string, ImportTransaction[]>();
+      for (const trans of transactionsToPreview) {
+        const currency = (trans as { currency?: string }).currency || 'CHF';
+        if (!byCurrency.has(currency)) {
+          byCurrency.set(currency, []);
+        }
+        byCurrency.get(currency)!.push(trans);
       }
-      byCurrency.get(currency)!.push(trans);
-    }
 
-    // For each currency, find the account and check for duplicates
-    const matchedUpdateMap: Record<string, { transaction: unknown; existing?: unknown; ignored?: boolean; tombstone?: boolean }> = {};
+      // For each currency, find the account and check for duplicates
+      const matchedUpdateMap: Record<
+        string,
+        {
+          transaction: unknown;
+          existing?: unknown;
+          ignored?: boolean;
+          tombstone?: boolean;
+        }
+      > = {};
 
-    for (const [currency, currencyTransactions] of byCurrency) {
-      const accountName = `Revolut ${currency.toUpperCase()}`;
-      const currencyAccount = accounts.find(a => a.name === accountName && !a.closed);
+      for (const [currency, currencyTransactions] of byCurrency) {
+        const accountName = `Revolut ${currency.toUpperCase()}`;
+        const currencyAccount = accounts.find(
+          a => a.name === accountName && !a.closed,
+        );
 
-      if (currencyAccount) {
-        const previewTrx = await dispatch(
-          importPreviewTransactions({
-            accountId: currencyAccount.id,
-            // @ts-expect-error - ImportTransaction extends TransactionEntity with preview fields
-            transactions: currencyTransactions.map(trans => ({
-              ...trans,
-              date: trans.date,
-              amount: amountToInteger(trans.amount),
-            })),
-          }),
-        ).unwrap();
+        if (currencyAccount) {
+          const previewTrx = await dispatch(
+            importPreviewTransactions({
+              accountId: currencyAccount.id,
+              // @ts-expect-error - ImportTransaction extends TransactionEntity with preview fields
+              transactions: currencyTransactions.map(trans => ({
+                ...trans,
+                date: trans.date,
+                amount: amountToInteger(trans.amount),
+              })),
+            }),
+          ).unwrap();
 
-        // Merge into map
-        for (const trx of previewTrx) {
-          if (trx.transaction && typeof trx.transaction === 'object') {
-            const txn = trx.transaction as { trx_id?: string };
-            if (txn.trx_id) {
-              matchedUpdateMap[txn.trx_id] = trx;
+          // Merge into map
+          for (const trx of previewTrx) {
+            if (trx.transaction && typeof trx.transaction === 'object') {
+              const txn = trx.transaction as { trx_id?: string };
+              if (txn.trx_id) {
+                matchedUpdateMap[txn.trx_id] = trx;
+              }
             }
           }
         }
       }
-    }
 
-    // Update transactions with duplicate info
-    const transactionPreview = transactionsToPreview.map(trans => {
-      const matchInfo = matchedUpdateMap[trans.trx_id];
-      if (matchInfo) {
-        // Extract category from existing transaction for display
-        const existingTrans = matchInfo.existing as { category?: string } | undefined;
-        return {
-          ...trans,
-          existing: !!matchInfo.existing,
-          ignored: matchInfo.ignored || false,
-          selected: !matchInfo.ignored,
-          tombstone: matchInfo.tombstone || false,
-          // Preserve existing transaction's category for display
-          category: existingTrans?.category || trans.category,
-        };
+      // Update transactions with duplicate info
+      const transactionPreview = transactionsToPreview.map(trans => {
+        const matchInfo = matchedUpdateMap[trans.trx_id];
+        if (matchInfo) {
+          // Extract category from existing transaction for display
+          const existingTrans = matchInfo.existing as
+            | { category?: string }
+            | undefined;
+          return {
+            ...trans,
+            existing: !!matchInfo.existing,
+            ignored: matchInfo.ignored || false,
+            selected: !matchInfo.ignored,
+            tombstone: matchInfo.tombstone || false,
+            // Preserve existing transaction's category for display
+            category: existingTrans?.category || trans.category,
+          };
+        }
+        return trans;
+      });
+
+      // Sort: new transactions first
+      transactionPreview.sort((a, b) => {
+        const aIsExisting = a.ignored || a.existing;
+        const bIsExisting = b.ignored || b.existing;
+        if (aIsExisting && !bIsExisting) return 1;
+        if (!aIsExisting && bIsExisting) return -1;
+        return 0;
+      });
+
+      setTransactions(transactionPreview);
+      const createdInfo = await fetchCategorySuggestions(transactionPreview);
+
+      // If categories were created, reload them and notify user
+      if (
+        createdInfo &&
+        (createdInfo.createdGroups.length > 0 ||
+          createdInfo.createdCategories.length > 0)
+      ) {
+        // Reload categories to include the newly created ones
+        await dispatch(getCategories());
+
+        // Show notification to user
+        const messages: string[] = [];
+        if (createdInfo.createdGroups.length > 0) {
+          messages.push(
+            t('Created category groups: {{groups}}', {
+              groups: createdInfo.createdGroups.join(', '),
+            }),
+          );
+        }
+        if (createdInfo.createdCategories.length > 0) {
+          messages.push(
+            t('Created categories: {{categories}}', {
+              categories: createdInfo.createdCategories.join(', '),
+            }),
+          );
+        }
+
+        dispatch(
+          addNotification({
+            notification: {
+              type: 'message',
+              message: messages.join(' '),
+              title: t('Missing categories created'),
+            },
+          }),
+        );
       }
-      return trans;
-    });
 
-    // Sort: new transactions first
-    transactionPreview.sort((a, b) => {
-      const aIsExisting = a.ignored || a.existing;
-      const bIsExisting = b.ignored || b.existing;
-      if (aIsExisting && !bIsExisting) return 1;
-      if (!aIsExisting && bIsExisting) return -1;
-      return 0;
-    });
-
-    setTransactions(transactionPreview);
-    const createdInfo = await fetchCategorySuggestions(transactionPreview);
-
-    // If categories were created, reload them and notify user
-    if (createdInfo && (createdInfo.createdGroups.length > 0 || createdInfo.createdCategories.length > 0)) {
-      // Reload categories to include the newly created ones
-      await dispatch(getCategories());
-
-      // Show notification to user
-      const messages: string[] = [];
-      if (createdInfo.createdGroups.length > 0) {
-        messages.push(t('Created category groups: {{groups}}', {
-          groups: createdInfo.createdGroups.join(', '),
-        }));
-      }
-      if (createdInfo.createdCategories.length > 0) {
-        messages.push(t('Created categories: {{categories}}', {
-          categories: createdInfo.createdCategories.join(', '),
-        }));
-      }
-
-      dispatch(addNotification({
-        notification: {
-          type: 'message',
-          message: messages.join(' '),
-          title: t('Missing categories created'),
-        },
-      }));
-    }
-
-    setLoadingState(null);
-  }, [accounts, dispatch, fetchCategorySuggestions, t]);
+      setLoadingState(null);
+    },
+    [accounts, dispatch, fetchCategorySuggestions, t],
+  );
 
   // Toggle transaction selection
   function onCheckTransaction(trxId: string) {
@@ -294,7 +344,7 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
           }
         }
         return trans;
-      })
+      }),
     );
   }
 
@@ -304,7 +354,9 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
     if (!currentRevolutTotal.trim()) {
       setError({
         parsed: true,
-        message: t('Please enter the "Current Revolut Total (CHF)" before importing.'),
+        message: t(
+          'Please enter the "Current Revolut Total (CHF)" before importing.',
+        ),
       });
       return;
     }
@@ -318,7 +370,8 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
       }
 
       // Skip transfers (they don't need categories)
-      const transactionType = (trans as { transaction_type?: string }).transaction_type;
+      const transactionType = (trans as { transaction_type?: string })
+        .transaction_type;
       if (transactionType && transferTypes.includes(transactionType)) {
         return false;
       }
@@ -333,9 +386,12 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
     if (transactionsWithoutCategories.length > 0) {
       setError({
         parsed: true,
-        message: t('Please assign categories to all transactions before importing. {{count}} transaction(s) are missing categories.', {
-          count: transactionsWithoutCategories.length,
-        }),
+        message: t(
+          'Please assign categories to all transactions before importing. {{count}} transaction(s) are missing categories.',
+          {
+            count: transactionsWithoutCategories.length,
+          },
+        ),
       });
       return;
     }
@@ -383,7 +439,9 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
       } = trans;
 
       if (trans.ignored && trans.selected) {
-        (finalTransaction as { forceAddTransaction?: boolean }).forceAddTransaction = true;
+        (
+          finalTransaction as { forceAddTransaction?: boolean }
+        ).forceAddTransaction = true;
       }
 
       finalTransactions.push({
@@ -413,7 +471,9 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
 
       // Balance correction
       if (currentRevolutTotal) {
-        const cleanedTotal = currentRevolutTotal.replace(/'/g, '').replace(',', '.');
+        const cleanedTotal = currentRevolutTotal
+          .replace(/'/g, '')
+          .replace(',', '.');
         const totalCHF = parseFloat(cleanedTotal);
 
         if (!isNaN(totalCHF)) {
@@ -423,7 +483,10 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
             expectedTotalCHF: totalCents,
           });
 
-          if (balanceResult.difference !== 0 && !balanceResult.correctionBooked) {
+          if (
+            balanceResult.difference !== 0 &&
+            !balanceResult.correctionBooked
+          ) {
             // Need to ask user for category
             setPendingBalanceCorrection({
               difference: balanceResult.difference,
@@ -462,7 +525,10 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
       setLoadingState('importing');
 
       // Save the category to settings
-      const newSettings = { ...importSettings, revolut_differenz_category: selectedDifferenzCategory };
+      const newSettings = {
+        ...importSettings,
+        revolut_differenz_category: selectedDifferenzCategory,
+      };
       await send('swiss-bank-save-import-settings', { settings: newSettings });
       setImportSettings(newSettings);
 
@@ -474,7 +540,8 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
       if (!balanceResult.success) {
         setError({
           parsed: true,
-          message: balanceResult.error || t('Failed to book balance correction'),
+          message:
+            balanceResult.error || t('Failed to book balance correction'),
         });
         setLoadingState(null);
         return;
@@ -483,7 +550,9 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
       if (!balanceResult.correctionBooked) {
         setError({
           parsed: true,
-          message: t('Balance correction was not booked. Please check the logs.'),
+          message: t(
+            'Balance correction was not booked. Please check the logs.',
+          ),
         });
         setLoadingState(null);
         return;
@@ -499,7 +568,10 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
       console.error('[Revolut Balance Correction] Error:', err);
       setError({
         parsed: true,
-        message: err instanceof Error ? err.message : t('Failed to book balance correction'),
+        message:
+          err instanceof Error
+            ? err.message
+            : t('Failed to book balance correction'),
       });
       setLoadingState(null);
     }
@@ -538,7 +610,9 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
           <View style={{ padding: 15 }}>
             {loadingState === 'parsing' && (
               <View style={{ textAlign: 'center', padding: 20 }}>
-                <Text><Trans>Parsing file...</Trans></Text>
+                <Text>
+                  <Trans>Parsing file...</Trans>
+                </Text>
               </View>
             )}
 
@@ -546,9 +620,9 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
               <TransactionList
                 transactions={transactions}
                 showParsed={false}
-                showStatus={true}
-                showCurrency={true}
-                isSwissBankImport={true}
+                showStatus
+                showCurrency
+                isSwissBankImport
                 parseDateFormat={null}
                 dateFormat={dateFormat}
                 fieldMappings={null}
@@ -559,7 +633,7 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
                 multiplierAmount=""
                 categories={categories.list}
                 categoryGroups={categories.grouped}
-                reconcile={true}
+                reconcile
                 onCheckTransaction={onCheckTransaction}
                 transactionCategories={transactionCategories}
                 onTransactionCategoryChange={onTransactionCategoryChange}
@@ -570,8 +644,16 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
             )}
 
             {error && (
-              <View style={{ color: theme.errorText, textAlign: 'center', marginTop: 10 }}>
-                <Text><strong>Error:</strong> {error.message}</Text>
+              <View
+                style={{
+                  color: theme.errorText,
+                  textAlign: 'center',
+                  marginTop: 10,
+                }}
+              >
+                <Text>
+                  <strong>Error:</strong> {error.message}
+                </Text>
               </View>
             )}
 
@@ -589,19 +671,35 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
                 <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>
                   <Trans>Configure Revolut Import Settings</Trans>
                 </Text>
-                <Text style={{ marginBottom: 15, color: theme.pageTextSubdued }}>
-                  <Trans>Select the accounts for Revolut transfers (bank account for top-ups/withdrawals, cash account for ATM).</Trans>
+                <Text
+                  style={{ marginBottom: 15, color: theme.pageTextSubdued }}
+                >
+                  <Trans>
+                    Select the accounts for Revolut transfers (bank account for
+                    top-ups/withdrawals, cash account for ATM).
+                  </Trans>
                 </Text>
 
                 <View style={{ marginBottom: 10 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <Text style={{ width: 150 }}><Trans>Topup Bank Account:</Trans></Text>
+                  <label
+                    style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+                  >
+                    <Text style={{ width: 150 }}>
+                      <Trans>Topup Bank Account:</Trans>
+                    </Text>
                     <Select
                       value={importSettings.revolut_bank_account}
-                      onChange={(e: string) => setImportSettings({ ...importSettings, revolut_bank_account: e })}
+                      onChange={(e: string) =>
+                        setImportSettings({
+                          ...importSettings,
+                          revolut_bank_account: e,
+                        })
+                      }
                       options={[
                         ['', t('Select an account...')] as [string, string],
-                        ...accounts.filter(a => !a.closed).map(a => [a.name, a.name] as [string, string]),
+                        ...accounts
+                          .filter(a => !a.closed)
+                          .map(a => [a.name, a.name] as [string, string]),
                       ]}
                       style={{ flex: 1 }}
                     />
@@ -609,14 +707,25 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
                 </View>
 
                 <View style={{ marginBottom: 10 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <Text style={{ width: 150 }}><Trans>Cash Account:</Trans></Text>
+                  <label
+                    style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+                  >
+                    <Text style={{ width: 150 }}>
+                      <Trans>Cash Account:</Trans>
+                    </Text>
                     <Select
                       value={importSettings.cash_account}
-                      onChange={(e: string) => setImportSettings({ ...importSettings, cash_account: e })}
+                      onChange={(e: string) =>
+                        setImportSettings({
+                          ...importSettings,
+                          cash_account: e,
+                        })
+                      }
                       options={[
                         ['', t('Select an account...')] as [string, string],
-                        ...accounts.filter(a => !a.closed).map(a => [a.name, a.name] as [string, string]),
+                        ...accounts
+                          .filter(a => !a.closed)
+                          .map(a => [a.name, a.name] as [string, string]),
                       ]}
                       style={{ flex: 1 }}
                     />
@@ -624,11 +733,20 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
                 </View>
 
                 <View style={{ marginBottom: 10 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <Text style={{ width: 150 }}><Trans>Differenz Category:</Trans></Text>
+                  <label
+                    style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+                  >
+                    <Text style={{ width: 150 }}>
+                      <Trans>Differenz Category:</Trans>
+                    </Text>
                     <Select
                       value={importSettings.revolut_differenz_category}
-                      onChange={(e: string) => setImportSettings({ ...importSettings, revolut_differenz_category: e })}
+                      onChange={(e: string) =>
+                        setImportSettings({
+                          ...importSettings,
+                          revolut_differenz_category: e,
+                        })
+                      }
                       options={[
                         ['', t('Select a category...')] as [string, string],
                         ...categories.grouped
@@ -636,7 +754,7 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
                             (group.categories || []).map(cat => {
                               const fullName = `${group.name}:${cat.name}`;
                               return [fullName, fullName] as [string, string];
-                            })
+                            }),
                           )
                           .sort((a, b) => a[0].localeCompare(b[0])),
                       ]}
@@ -664,25 +782,44 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
                   border: '1px solid ' + theme.warningBorder,
                 }}
               >
-                <Text style={{ fontWeight: 'bold', marginBottom: 10, color: theme.warningText }}>
+                <Text
+                  style={{
+                    fontWeight: 'bold',
+                    marginBottom: 10,
+                    color: theme.warningText,
+                  }}
+                >
                   <Trans>Balance Correction Required</Trans>
                 </Text>
                 <Text style={{ marginBottom: 15 }}>
                   <Trans>
-                    The calculated Revolut balance differs from the entered total.
-                    Please select a category for the balance correction transaction.
+                    The calculated Revolut balance differs from the entered
+                    total. Please select a category for the balance correction
+                    transaction.
                   </Trans>
                 </Text>
-                <View style={{ marginBottom: 10, padding: 10, backgroundColor: theme.tableBackground, borderRadius: 4 }}>
+                <View
+                  style={{
+                    marginBottom: 10,
+                    padding: 10,
+                    backgroundColor: theme.tableBackground,
+                    borderRadius: 4,
+                  }}
+                >
                   <Text style={{ fontSize: '0.9em' }}>
                     <Trans>
-                      Difference: CHF {(pendingBalanceCorrection.difference / 100).toFixed(2)}
+                      Difference: CHF{' '}
+                      {(pendingBalanceCorrection.difference / 100).toFixed(2)}
                     </Trans>
                   </Text>
                 </View>
                 <View style={{ marginBottom: 10 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <Text style={{ width: 100 }}><Trans>Category:</Trans></Text>
+                  <label
+                    style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+                  >
+                    <Text style={{ width: 100 }}>
+                      <Trans>Category:</Trans>
+                    </Text>
                     <Select
                       value={selectedDifferenzCategory}
                       onChange={(e: string) => setSelectedDifferenzCategory(e)}
@@ -693,7 +830,7 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
                             (group.categories || []).map(cat => {
                               const fullName = `${group.name}:${cat.name}`;
                               return [fullName, fullName] as [string, string];
-                            })
+                            }),
                           )
                           .sort((a, b) => a[0].localeCompare(b[0])),
                       ]}
@@ -702,7 +839,12 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
                   </label>
                 </View>
                 <View style={{ display: 'flex', gap: 10, marginTop: 15 }}>
-                  <Button onPress={() => { setShowCategoryPrompt(false); close(); }}>
+                  <Button
+                    onPress={() => {
+                      setShowCategoryPrompt(false);
+                      close();
+                    }}
+                  >
                     <Trans>Skip</Trans>
                   </Button>
                   <Button
@@ -743,25 +885,38 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
                       style={{ width: 150 }}
                     />
                   </label>
-                  <Text style={{ color: theme.pageTextSubdued, fontSize: '0.85em' }}>
-                    <Trans>Enter the current total from your Revolut app to correct exchange rate differences</Trans>
+                  <Text
+                    style={{ color: theme.pageTextSubdued, fontSize: '0.85em' }}
+                  >
+                    <Trans>
+                      Enter the current total from your Revolut app to correct
+                      exchange rate differences
+                    </Trans>
                   </Text>
                 </SpaceBetween>
               </View>
             )}
 
             {/* Import Button */}
-            {!showSettingsDialog && !showCategoryPrompt && loadingState !== 'parsing' && (
-              <View style={{ marginTop: 15, display: 'flex', justifyContent: 'flex-end' }}>
-                <ButtonWithLoading
-                  variant="primary"
-                  isLoading={loadingState === 'importing'}
-                  onPress={() => onImport(close)}
+            {!showSettingsDialog &&
+              !showCategoryPrompt &&
+              loadingState !== 'parsing' && (
+                <View
+                  style={{
+                    marginTop: 15,
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                  }}
                 >
-                  <Trans>Import Transactions</Trans>
-                </ButtonWithLoading>
-              </View>
-            )}
+                  <ButtonWithLoading
+                    variant="primary"
+                    isLoading={loadingState === 'importing'}
+                    onPress={() => onImport(close)}
+                  >
+                    <Trans>Import Transactions</Trans>
+                  </ButtonWithLoading>
+                </View>
+              )}
           </View>
         </>
       )}

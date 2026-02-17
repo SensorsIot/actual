@@ -5,11 +5,13 @@
 This document specifies reporting behavior for Actual Budget. Each report has its own chapter so new reports can be added without restructuring the document.
 
 Supported reports:
+
 - Budget vs Actual (implemented)
 - Current Asset Value (implemented)
 - Yearly Budget Planner (planned)
 
 Report types:
+
 - Dashboard widgets
 - Full report pages
 
@@ -67,16 +69,19 @@ Report types:
 ### Sign convention and variance rules
 
 **Storage convention:**
+
 - Expense budgets: stored as POSITIVE (+500)
 - Income budgets: stored as NEGATIVE (-1000)
 - Expense transactions: stored as NEGATIVE (-300)
 - Income transactions: stored as POSITIVE (+1000)
 
 **Display transformation (all positive):**
+
 - Income: negate budget (−1000 → +1000), keep actual (+1000)
 - Expense: keep budget (+500), negate actual (−300 → +300)
 
 **Variance calculation:**
+
 - Formula: Actual - Budget (uniform for all categories)
 - Expense categories:
   - Positive variance = overspent (bad)
@@ -86,11 +91,13 @@ Report types:
   - Negative variance = earned less than expected (bad)
 
 **Totals:**
+
 - Income values add to total
 - Expense values subtract from total
 - Net = Income - Expenses
 
 **Color rules:**
+
 - Expense categories:
   - Positive variance: `theme.errorText` (red = overspent)
   - Negative variance: `theme.noticeTextLight` (green = underspent)
@@ -104,10 +111,12 @@ Report types:
 ### Table layout
 
 Two-row header structure:
+
 - First row: Category | Month names (centered over Bud/Act pairs) | Total (centered over summary columns)
 - Second row: (empty) | Bud | Act (per month) | Bud | Act | Var | %
 
 Columns:
+
 - **Category**: Category name (grouped under category groups)
 - **Monthly columns** (up to 12 months based on date range):
   - Per month: Budgeted and Actual amounts
@@ -121,6 +130,7 @@ Columns:
   - % (percentage variance, hidden in compact mode)
 
 Table features:
+
 - Collapsible category groups (click to expand/collapse)
 - Group subtotal rows and grand total row
 - Group rows use bold styling
@@ -216,19 +226,20 @@ A planning tool that allows users to establish budget amounts for all categories
 
 ### Table layout
 
-| Category | Last Year | Yearly Budget | Distribute | Jan | Feb | ... | Dec | Total |
-|----------|-----------|---------------|------------|-----|-----|-----|-----|-------|
-| **Income** |
-| Salary | 60,000 | [input] | [button] | [input] | [input] | ... | [input] | 60,000 |
-| **Expenses** |
-| Groceries | -12,000 | [input] | [button] | [input] | [input] | ... | [input] | -12,000 |
-| Rent | -18,000 | [input] | [button] | [input] | [input] | ... | [input] | -18,000 |
-| **Totals** |
-| Total Income | 60,000 | | | | | ... | | 60,000 |
-| Total Expenses | -30,000 | | | | | ... | | -30,000 |
-| **Net (Gain/Deficit)** | **30,000** | | | | | ... | | **30,000** |
+| Category               | Last Year  | Yearly Budget | Distribute | Jan     | Feb     | ... | Dec     | Total      |
+| ---------------------- | ---------- | ------------- | ---------- | ------- | ------- | --- | ------- | ---------- |
+| **Income**             |
+| Salary                 | 60,000     | [input]       | [button]   | [input] | [input] | ... | [input] | 60,000     |
+| **Expenses**           |
+| Groceries              | -12,000    | [input]       | [button]   | [input] | [input] | ... | [input] | -12,000    |
+| Rent                   | -18,000    | [input]       | [button]   | [input] | [input] | ... | [input] | -18,000    |
+| **Totals**             |
+| Total Income           | 60,000     |               |            |         |         | ... |         | 60,000     |
+| Total Expenses         | -30,000    |               |            |         |         | ... |         | -30,000    |
+| **Net (Gain/Deficit)** | **30,000** |               |            |         |         | ... |         | **30,000** |
 
 Column details:
+
 - **Category**: Category name (grouped under category groups)
 - **Last Year**: Read-only. Actual amounts from previous year (income positive, expenses negative)
 - **Yearly Budget**: Input field. Helper for distribution (not persisted)
@@ -237,6 +248,7 @@ Column details:
 - **Total**: Read-only. Sum of Jan–Dec. Updates immediately when any month changes
 
 Column widths:
+
 - Category: 180px
 - Last Year: 90px
 - Yearly Budget: 100px
@@ -311,6 +323,7 @@ Column widths:
 ## Appendix A - Data Models and Types
 
 ### Budget vs Actual
+
 - `MonthlyBudgetActual`: budgeted, actual
 - `BudgetVsActualCategoryData`: id, name, monthlyData (Record<month, MonthlyBudgetActual>), budgeted, actual, variance
 - `BudgetVsActualGroupData`: id, name, monthlyData (Record<month, MonthlyBudgetActual>), budgeted, actual, variance, categories
@@ -318,6 +331,7 @@ Column widths:
 - `BudgetVsActualWidget`: name, conditions, conditionsOp, timeFrame, showHiddenCategories
 
 ### Transactions Drilldown Modal
+
 - Modal name: `transactions-drilldown`
 - Options: categoryId, categoryName, month (optional), startDate, endDate, onTransactionChange (callback)
 - Modal width: 900px (max 95vw)
@@ -326,10 +340,12 @@ Column widths:
 - Query: Transactions filtered by category and date range
 
 **Category display**:
+
 - Shows group and category name (e.g., "Lebensunterhalt: Staat")
 - Uses `useCategories` hook to resolve group names
 
 **Category editing**:
+
 - Click category column to change transaction's category
 - Opens `category-autocomplete` modal for selection
 - Transaction removed from list after change (no longer in this category)
@@ -338,16 +354,19 @@ Column widths:
 - Calls `onTransactionChange` callback to trigger parent data refresh
 
 **Auto-close behavior**:
+
 - When last transaction is moved to another category, modal closes automatically
 - Parent report (Budget vs Actual) refreshes via `refreshKey` state
 
 ### Current Asset Value
+
 - `CurrentAssetValueAccountData`: id, name, balance
 - `CurrentAssetValueGroupData`: id, name, balance, accounts
 - `CurrentAssetValueData`: groups, totalBalance, date
 - `CurrentAssetValueWidget`: name, conditions, conditionsOp, date
 
 ### Yearly Budget Planner
+
 - `YearlyBudgetCategoryData`: id, name, hidden, isIncome, lastYearAmount, yearlyBudgetInput (helper, not persisted), monthBudgets (Record<month, amount>)
 - `YearlyBudgetGroupData`: id, name, hidden, isIncome, categories
 - `YearlyBudgetPlannerData`: groups, year, hasUnsavedChanges, totalIncome, totalExpenses, netAmount
@@ -366,22 +385,22 @@ Column widths:
   - Calculate net worth as sum of all account balances
 
 Schema reference:
+
 - `zero_budgets`: envelope budgeting
 - `reflect_budgets`: tracking budgeting (same schema as zero_budgets)
 
 Budget query (per month):
+
 ```typescript
 q('zero_budgets')
   .filter({
-    $and: [
-      { month: { $gte: startMonth } },
-      { month: { $lte: endMonth } },
-    ],
+    $and: [{ month: { $gte: startMonth } }, { month: { $lte: endMonth } }],
   })
   .select(['category', 'month', 'amount']);
 ```
 
 Transaction query (per month):
+
 ```typescript
 q('transactions')
   .filter({
@@ -401,6 +420,7 @@ q('transactions')
 ```
 
 Current Asset Value query (per account):
+
 ```typescript
 q('transactions')
   .filter({
@@ -414,37 +434,40 @@ q('transactions')
 Yearly Budget Planner queries:
 
 Current year budgets:
+
 ```typescript
 q('zero_budgets')
   .filter({
     $and: [
-      { month: { $gte: currentYearStart } },  // e.g., 202601
-      { month: { $lte: currentYearEnd } },    // e.g., 202612
+      { month: { $gte: currentYearStart } }, // e.g., 202601
+      { month: { $lte: currentYearEnd } }, // e.g., 202612
     ],
   })
   .select(['category', 'month', 'amount']);
 ```
 
 Last year amounts (per category, all transactions):
+
 ```typescript
 q('transactions')
   .filter({
     $and: [
-      { date: { $gte: lastYearStart } },  // e.g., '2025-01-01'
-      { date: { $lte: lastYearEnd } },    // e.g., '2025-12-31'
+      { date: { $gte: lastYearStart } }, // e.g., '2025-01-01'
+      { date: { $lte: lastYearEnd } }, // e.g., '2025-12-31'
     ],
   })
   .groupBy([{ $id: '$category' }])
   .select([
     { category: { $id: '$category' } },
-    { amount: { $sum: '$amount' } },      // positive = income, negative = expense
+    { amount: { $sum: '$amount' } }, // positive = income, negative = expense
   ]);
 ```
 
 Budget save API:
+
 ```typescript
 send('budget/budget-amount', {
-  month: 'YYYY-MM',      // e.g., '2025-03'
+  month: 'YYYY-MM', // e.g., '2025-03'
   category: categoryId,
   amount: amountInCents, // integer
 });
@@ -463,40 +486,44 @@ send('budget/budget-amount', {
 ## Appendix D - Implementation Files
 
 ### Budget vs Actual
-| Component | File Path |
-|-----------|-----------|
-| Full report page | `packages/desktop-client/src/components/reports/reports/BudgetVsActual.tsx` |
-| Widget card | `packages/desktop-client/src/components/reports/reports/BudgetVsActualCard.tsx` |
-| Table component | `packages/desktop-client/src/components/reports/graphs/BudgetVsActualTable.tsx` |
+
+| Component           | File Path                                                                                     |
+| ------------------- | --------------------------------------------------------------------------------------------- |
+| Full report page    | `packages/desktop-client/src/components/reports/reports/BudgetVsActual.tsx`                   |
+| Widget card         | `packages/desktop-client/src/components/reports/reports/BudgetVsActualCard.tsx`               |
+| Table component     | `packages/desktop-client/src/components/reports/graphs/BudgetVsActualTable.tsx`               |
 | Spreadsheet/queries | `packages/desktop-client/src/components/reports/spreadsheets/budget-vs-actual-spreadsheet.ts` |
 
 ### Current Asset Value
-| Component | File Path |
-|-----------|-----------|
-| Full report page | `packages/desktop-client/src/components/reports/reports/CurrentAssetValue.tsx` |
-| Widget card | `packages/desktop-client/src/components/reports/reports/CurrentAssetValueCard.tsx` |
-| Table component | `packages/desktop-client/src/components/reports/graphs/CurrentAssetValueTable.tsx` |
+
+| Component           | File Path                                                                                        |
+| ------------------- | ------------------------------------------------------------------------------------------------ |
+| Full report page    | `packages/desktop-client/src/components/reports/reports/CurrentAssetValue.tsx`                   |
+| Widget card         | `packages/desktop-client/src/components/reports/reports/CurrentAssetValueCard.tsx`               |
+| Table component     | `packages/desktop-client/src/components/reports/graphs/CurrentAssetValueTable.tsx`               |
 | Spreadsheet/queries | `packages/desktop-client/src/components/reports/spreadsheets/current-asset-value-spreadsheet.ts` |
 
 ### Yearly Budget Planner
-| Component | File Path |
-|-----------|-----------|
-| Full report page | `packages/desktop-client/src/components/reports/reports/YearlyBudgetPlanner.tsx` |
-| Table component | `packages/desktop-client/src/components/reports/graphs/YearlyBudgetPlannerTable.tsx` |
+
+| Component           | File Path                                                                                          |
+| ------------------- | -------------------------------------------------------------------------------------------------- |
+| Full report page    | `packages/desktop-client/src/components/reports/reports/YearlyBudgetPlanner.tsx`                   |
+| Table component     | `packages/desktop-client/src/components/reports/graphs/YearlyBudgetPlannerTable.tsx`               |
 | Spreadsheet/queries | `packages/desktop-client/src/components/reports/spreadsheets/yearly-budget-planner-spreadsheet.ts` |
 
 ### Shared Infrastructure
-| Component | File Path |
-|-----------|-----------|
-| Widget type definitions | `packages/loot-core/src/types/models/dashboard.ts` |
-| Widget type validation | `packages/loot-core/src/server/dashboard/app.ts` |
-| Report routing | `packages/desktop-client/src/components/reports/ReportRouter.tsx` |
-| Dashboard integration | `packages/desktop-client/src/components/reports/Overview.tsx` |
-| Saved reports hook | `packages/desktop-client/src/hooks/useSavedReports.ts` |
-| Saved reports selector | `packages/desktop-client/src/components/reports/SavedReportsSelector.tsx` |
-| Widget registry | `packages/desktop-client/src/components/reports/widgetRegistry.tsx` |
+
+| Component                   | File Path                                                                     |
+| --------------------------- | ----------------------------------------------------------------------------- |
+| Widget type definitions     | `packages/loot-core/src/types/models/dashboard.ts`                            |
+| Widget type validation      | `packages/loot-core/src/server/dashboard/app.ts`                              |
+| Report routing              | `packages/desktop-client/src/components/reports/ReportRouter.tsx`             |
+| Dashboard integration       | `packages/desktop-client/src/components/reports/Overview.tsx`                 |
+| Saved reports hook          | `packages/desktop-client/src/hooks/useSavedReports.ts`                        |
+| Saved reports selector      | `packages/desktop-client/src/components/reports/SavedReportsSelector.tsx`     |
+| Widget registry             | `packages/desktop-client/src/components/reports/widgetRegistry.tsx`           |
 | Custom widget registrations | `packages/desktop-client/src/components/reports/customWidgetRegistrations.ts` |
-| Sidebar route overrides | `packages/desktop-client/src/components/sidebar/customSidebarConfig.ts` |
+| Sidebar route overrides     | `packages/desktop-client/src/components/sidebar/customSidebarConfig.ts`       |
 
 ## Appendix E - Widget Registry Pattern
 
@@ -526,6 +553,7 @@ Custom widgets use a registry pattern to minimize changes to core Actual files d
 ### Upgrade safety
 
 When upgrading Actual Budget:
+
 - **Safe**: All files in "Custom Widget Registrations" section
 - **Check**: `dashboard.ts`, `app.ts`, `ReportRouter.tsx` for merge conflicts
 - **Minimal risk**: `Overview.tsx` only has 3 lines of custom code (import + registry calls)
@@ -564,5 +592,6 @@ import { getSidebarRoute } from './customSidebarConfig';
 ### Upgrade safety
 
 When upgrading Actual Budget:
+
 - **Safe**: `customSidebarConfig.ts` (your custom file)
 - **Check**: `PrimaryButtons.tsx` for changes to the import line or Item usage

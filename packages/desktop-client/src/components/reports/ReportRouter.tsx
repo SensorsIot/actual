@@ -7,11 +7,11 @@ import { CashFlow } from './reports/CashFlow';
 import { Crossover } from './reports/Crossover';
 import { CurrentAssetValue } from './reports/CurrentAssetValue';
 import { CustomReport } from './reports/CustomReport';
-import { YearlyBudgetPlanner } from './reports/YearlyBudgetPlanner';
 import { Formula } from './reports/Formula';
 import { NetWorth } from './reports/NetWorth';
 import { Spending } from './reports/Spending';
 import { Summary } from './reports/Summary';
+import { YearlyBudgetPlanner } from './reports/YearlyBudgetPlanner';
 import { ReportsDashboardRouter } from './ReportsDashboardRouter';
 
 import { useFeatureFlag } from '@desktop-client/hooks/useFeatureFlag';

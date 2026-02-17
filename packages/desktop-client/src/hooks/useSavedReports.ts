@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { type RuleConditionEntity, type TimeFrame } from 'loot-core/types/models';
+import {
+  type RuleConditionEntity,
+  type TimeFrame,
+} from 'loot-core/types/models';
 
 // Generic config that supports all report types
 export type SavedReportConfig = {

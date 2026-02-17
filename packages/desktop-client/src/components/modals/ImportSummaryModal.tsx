@@ -31,7 +31,10 @@ export function ImportSummaryModal({
   const { t } = useTranslation();
 
   const hasErrors = errors.length > 0;
-  const title = importType === 'migros' ? t('Migros Import Summary') : t('Revolut Import Summary');
+  const title =
+    importType === 'migros'
+      ? t('Migros Import Summary')
+      : t('Revolut Import Summary');
 
   return (
     <Modal name="import-summary" containerProps={{ style: { width: 450 } }}>
@@ -47,10 +50,17 @@ export function ImportSummaryModal({
               style={{
                 padding: 10,
                 borderRadius: 4,
-                backgroundColor: hasErrors ? theme.errorBackground : theme.noticeBackground,
+                backgroundColor: hasErrors
+                  ? theme.errorBackground
+                  : theme.noticeBackground,
               }}
             >
-              <Text style={{ fontWeight: 'bold', color: hasErrors ? theme.errorText : theme.noticeText }}>
+              <Text
+                style={{
+                  fontWeight: 'bold',
+                  color: hasErrors ? theme.errorText : theme.noticeText,
+                }}
+              >
                 {hasErrors ? (
                   <Trans>Import completed with errors</Trans>
                 ) : (
@@ -83,27 +93,54 @@ export function ImportSummaryModal({
               </Text>
               <View style={{ display: 'flex', flexDirection: 'row', gap: 20 }}>
                 <View style={{ textAlign: 'center' }}>
-                  <Text style={{ fontSize: 24, fontWeight: 'bold', color: theme.noticeText }}>
+                  <Text
+                    style={{
+                      fontSize: 24,
+                      fontWeight: 'bold',
+                      color: theme.noticeText,
+                    }}
+                  >
                     {transactionsAdded}
                   </Text>
-                  <Text style={{ color: theme.pageTextSubdued, fontSize: '0.9em' }}>
+                  <Text
+                    style={{ color: theme.pageTextSubdued, fontSize: '0.9em' }}
+                  >
                     <Trans>Added</Trans>
                   </Text>
                 </View>
                 <View style={{ textAlign: 'center' }}>
-                  <Text style={{ fontSize: 24, fontWeight: 'bold', color: theme.warningText }}>
+                  <Text
+                    style={{
+                      fontSize: 24,
+                      fontWeight: 'bold',
+                      color: theme.warningText,
+                    }}
+                  >
                     {transactionsUpdated}
                   </Text>
-                  <Text style={{ color: theme.pageTextSubdued, fontSize: '0.9em' }}>
+                  <Text
+                    style={{ color: theme.pageTextSubdued, fontSize: '0.9em' }}
+                  >
                     <Trans>Updated</Trans>
                   </Text>
                 </View>
                 {categoriesApplied > 0 && (
                   <View style={{ textAlign: 'center' }}>
-                    <Text style={{ fontSize: 24, fontWeight: 'bold', color: theme.pageTextPositive }}>
+                    <Text
+                      style={{
+                        fontSize: 24,
+                        fontWeight: 'bold',
+                        color: theme.pageTextPositive,
+                      }}
+                    >
                       {categoriesApplied}
                     </Text>
-                    <Text style={{ color: theme.pageTextSubdued, fontSize: '0.9em' }}>
+                    <Text
+                      style={{
+                        color: theme.pageTextSubdued,
+                        fontSize: '0.9em',
+                      }}
+                    >
                       <Trans>Categorized</Trans>
                     </Text>
                   </View>
@@ -114,7 +151,13 @@ export function ImportSummaryModal({
             {/* Errors */}
             {hasErrors && (
               <View>
-                <Text style={{ fontWeight: 'bold', marginBottom: 5, color: theme.errorText }}>
+                <Text
+                  style={{
+                    fontWeight: 'bold',
+                    marginBottom: 5,
+                    color: theme.errorText,
+                  }}
+                >
                   <Trans>Errors</Trans>
                 </Text>
                 {errors.map((error, i) => (

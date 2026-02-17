@@ -39,21 +39,23 @@ Shows current balance of all on-budget accounts, grouped by account groups.
 ### Sidebar Changes
 
 The Budget section is expandable with sub-items:
+
 - **Budget**: Standard Actual Budget page
 - **Budget Planner**: Yearly Budget Planner
 
 ## Sign Conventions (Tracking Budget Mode)
 
-| | Storage (reflect_budgets) | Transactions |
-|--|--------------------------|-------------|
-| Income budget | Positive (+2900) | - |
-| Expense budget | Positive (+550) | - |
-| Income actual | - | Positive (+2900) |
-| Expense actual | - | Negative (-267) |
+|                | Storage (reflect_budgets) | Transactions     |
+| -------------- | ------------------------- | ---------------- |
+| Income budget  | Positive (+2900)          | -                |
+| Expense budget | Positive (+550)           | -                |
+| Income actual  | -                         | Positive (+2900) |
+| Expense actual | -                         | Negative (-267)  |
 
 **Display**: Budgets shown as positive. Actuals shown with natural signs.
 
 **Variance**:
+
 - Income: `actual - budget` (positive = earned more = good)
 - Expense: `budget + actual` (positive = under budget = good)
 

@@ -1,4 +1,9 @@
-import React, { useCallback, useEffect, useState, type ComponentProps } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useState,
+  type ComponentProps,
+} from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 
 import { Button, ButtonWithLoading } from '@actual-app/components/button';
@@ -14,13 +19,16 @@ import { TransactionList } from './components/TransactionList';
 import { useSwissBankImport } from './hooks/useSwissBankImport';
 import { type ImportTransaction } from './utils';
 
-import { importMigrosTransactions, importPreviewTransactions } from '@desktop-client/accounts/accountsSlice';
+import {
+  importMigrosTransactions,
+  importPreviewTransactions,
+} from '@desktop-client/accounts/accountsSlice';
 import {
   Modal,
   ModalCloseButton,
   ModalHeader,
 } from '@desktop-client/components/common/Modal';
-import { TableHeader } from '@desktop-client/components/table';
+import { type TableHeader } from '@desktop-client/components/table';
 import { useAccounts } from '@desktop-client/hooks/useAccounts';
 import { useCategories } from '@desktop-client/hooks/useCategories';
 import { useDateFormat } from '@desktop-client/hooks/useDateFormat';
@@ -53,14 +61,23 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
   const { filename, onImported } = options;
 
   // State
-  const [loadingState, setLoadingState] = useState<null | 'parsing' | 'importing'>('parsing');
-  const [error, setError] = useState<{ parsed: boolean; message: string } | null>(null);
+  const [loadingState, setLoadingState] = useState<
+    null | 'parsing' | 'importing'
+  >('parsing');
+  const [error, setError] = useState<{
+    parsed: boolean;
+    message: string;
+  } | null>(null);
   const [transactions, setTransactions] = useState<ImportTransaction[]>([]);
-  const [parsedTransactions, setParsedTransactions] = useState<ImportTransaction[]>([]);
+  const [parsedTransactions, setParsedTransactions] = useState<
+    ImportTransaction[]
+  >([]);
 
   // Import settings
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
-  const [importSettings, setImportSettings] = useState<ImportSettings>(DEFAULT_IMPORT_SETTINGS);
+  const [importSettings, setImportSettings] = useState<ImportSettings>(
+    DEFAULT_IMPORT_SETTINGS,
+  );
   const [targetAccountId, setTargetAccountId] = useState<string | null>(null);
 
   // Bank saldo from CSV header
@@ -81,13 +98,14 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
     async function parseFile() {
       setLoadingState('parsing');
 
-      const { errors, transactions: parsed = [], metadata } = await send(
-        'transactions-parse-file',
-        {
-          filepath: filename,
-          options: { swissBankFormat: 'migros', importNotes: true },
-        },
-      );
+      const {
+        errors,
+        transactions: parsed = [],
+        metadata,
+      } = await send('transactions-parse-file', {
+        filepath: filename,
+        options: { swissBankFormat: 'migros', importNotes: true },
+      });
 
       if (errors.length > 0) {
         setError({ parsed: false, message: errors[0].message });
@@ -97,7 +115,10 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
 
       // Verify this is actually a Migros file
       if (metadata?.bankFormat !== 'migros') {
-        setError({ parsed: false, message: t('This file does not appear to be a Migros Bank export.') });
+        setError({
+          parsed: false,
+          message: t('This file does not appear to be a Migros Bank export.'),
+        });
         setLoadingState(null);
         return;
       }
@@ -115,7 +136,9 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
 
       // Find target account
       if (settings.migros_account) {
-        const account = accounts.find(a => a.name === settings.migros_account && !a.closed);
+        const account = accounts.find(
+          a => a.name === settings.migros_account && !a.closed,
+        );
         if (account) {
           setTargetAccountId(account.id);
         } else {
@@ -138,29 +161,34 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
 
       // Check for existing payee mapping
       const existingMapping = await send('swiss-bank-get-payee-mapping', {});
-      const mappingIsEmpty = !existingMapping || Object.keys(existingMapping).length === 0;
+      const mappingIsEmpty =
+        !existingMapping || Object.keys(existingMapping).length === 0;
 
       if (mappingIsEmpty && transactionsWithIds.length > 0) {
         // Offer to learn from existing transactions
         setTransactions(transactionsWithIds);
         setLoadingState(null);
 
-        dispatch(pushModal({
-          modal: {
-            name: 'learn-categories',
-            options: {
-              onLearn: () => {
-                fetchCategorySuggestions(transactionsWithIds);
-              },
-              onSkip: () => {
-                // Continue without category suggestions
+        dispatch(
+          pushModal({
+            modal: {
+              name: 'learn-categories',
+              options: {
+                onLearn: () => {
+                  fetchCategorySuggestions(transactionsWithIds);
+                },
+                onSkip: () => {
+                  // Continue without category suggestions
+                },
               },
             },
-          },
-        }));
+          }),
+        );
       } else if (targetAccountId || settings.migros_account) {
         // Apply category suggestions and run preview
-        const account = accounts.find(a => a.name === settings.migros_account && !a.closed);
+        const account = accounts.find(
+          a => a.name === settings.migros_account && !a.closed,
+        );
         if (account) {
           await runImportPreview(transactionsWithIds, account.id);
         } else {
@@ -178,58 +206,69 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
   }, [filename]);
 
   // Run import preview to detect duplicates
-  const runImportPreview = useCallback(async (transactionsToPreview: ImportTransaction[], accountId: string) => {
-    const previewTrx = await dispatch(
-      importPreviewTransactions({
-        accountId,
-        // @ts-expect-error - ImportTransaction extends TransactionEntity with preview fields
-        transactions: transactionsToPreview.map(trans => ({
-          ...trans,
-          date: trans.date,
-          amount: amountToInteger(trans.amount),
-        })),
-      }),
-    ).unwrap();
+  const runImportPreview = useCallback(
+    async (transactionsToPreview: ImportTransaction[], accountId: string) => {
+      const previewTrx = await dispatch(
+        importPreviewTransactions({
+          accountId,
+          // @ts-expect-error - ImportTransaction extends TransactionEntity with preview fields
+          transactions: transactionsToPreview.map(trans => ({
+            ...trans,
+            date: trans.date,
+            amount: amountToInteger(trans.amount),
+          })),
+        }),
+      ).unwrap();
 
-    // Build map of trx_id -> preview info
-    const matchedUpdateMap: Record<string, { transaction: unknown; existing?: unknown; ignored?: boolean; tombstone?: boolean }> = {};
-    for (const trx of previewTrx) {
-      if (trx.transaction && typeof trx.transaction === 'object') {
-        const txn = trx.transaction as { trx_id?: string };
-        if (txn.trx_id) {
-          matchedUpdateMap[txn.trx_id] = trx;
+      // Build map of trx_id -> preview info
+      const matchedUpdateMap: Record<
+        string,
+        {
+          transaction: unknown;
+          existing?: unknown;
+          ignored?: boolean;
+          tombstone?: boolean;
+        }
+      > = {};
+      for (const trx of previewTrx) {
+        if (trx.transaction && typeof trx.transaction === 'object') {
+          const txn = trx.transaction as { trx_id?: string };
+          if (txn.trx_id) {
+            matchedUpdateMap[txn.trx_id] = trx;
+          }
         }
       }
-    }
 
-    // Update transactions with duplicate info
-    const transactionPreview = transactionsToPreview.map(trans => {
-      const matchInfo = matchedUpdateMap[trans.trx_id];
-      if (matchInfo) {
-        return {
-          ...trans,
-          existing: !!matchInfo.existing,
-          ignored: matchInfo.ignored || false,
-          selected: !matchInfo.ignored,
-          tombstone: matchInfo.tombstone || false,
-        };
-      }
-      return trans;
-    });
+      // Update transactions with duplicate info
+      const transactionPreview = transactionsToPreview.map(trans => {
+        const matchInfo = matchedUpdateMap[trans.trx_id];
+        if (matchInfo) {
+          return {
+            ...trans,
+            existing: !!matchInfo.existing,
+            ignored: matchInfo.ignored || false,
+            selected: !matchInfo.ignored,
+            tombstone: matchInfo.tombstone || false,
+          };
+        }
+        return trans;
+      });
 
-    // Sort: new transactions first
-    transactionPreview.sort((a, b) => {
-      const aIsExisting = a.ignored || a.existing;
-      const bIsExisting = b.ignored || b.existing;
-      if (aIsExisting && !bIsExisting) return 1;
-      if (!aIsExisting && bIsExisting) return -1;
-      return 0;
-    });
+      // Sort: new transactions first
+      transactionPreview.sort((a, b) => {
+        const aIsExisting = a.ignored || a.existing;
+        const bIsExisting = b.ignored || b.existing;
+        if (aIsExisting && !bIsExisting) return 1;
+        if (!aIsExisting && bIsExisting) return -1;
+        return 0;
+      });
 
-    setTransactions(transactionPreview);
-    await fetchCategorySuggestions(transactionPreview);
-    setLoadingState(null);
-  }, [dispatch, fetchCategorySuggestions]);
+      setTransactions(transactionPreview);
+      await fetchCategorySuggestions(transactionPreview);
+      setLoadingState(null);
+    },
+    [dispatch, fetchCategorySuggestions],
+  );
 
   // Toggle transaction selection
   function onCheckTransaction(trxId: string) {
@@ -245,7 +284,7 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
           }
         }
         return trans;
-      })
+      }),
     );
   }
 
@@ -302,7 +341,9 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
       } = trans;
 
       if (trans.ignored && trans.selected) {
-        (finalTransaction as { forceAddTransaction?: boolean }).forceAddTransaction = true;
+        (
+          finalTransaction as { forceAddTransaction?: boolean }
+        ).forceAddTransaction = true;
       }
 
       finalTransactions.push({
@@ -334,7 +375,9 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
 
     // Save payee mappings
     if (payeeMappingsToSave.length > 0) {
-      await send('swiss-bank-add-payee-mappings', { newMappings: payeeMappingsToSave });
+      await send('swiss-bank-add-payee-mappings', {
+        newMappings: payeeMappingsToSave,
+      });
     }
 
     if (onImported) {
@@ -347,7 +390,9 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
     await send('swiss-bank-save-import-settings', { settings: importSettings });
 
     // Update target account
-    const account = accounts.find(a => a.name === importSettings.migros_account && !a.closed);
+    const account = accounts.find(
+      a => a.name === importSettings.migros_account && !a.closed,
+    );
     if (account) {
       setTargetAccountId(account.id);
       setShowSettingsDialog(false);
@@ -380,15 +425,26 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
           <View style={{ padding: 15 }}>
             {loadingState === 'parsing' && (
               <View style={{ textAlign: 'center', padding: 20 }}>
-                <Text><Trans>Parsing file...</Trans></Text>
+                <Text>
+                  <Trans>Parsing file...</Trans>
+                </Text>
               </View>
             )}
 
             {/* Bank Saldo Info */}
             {bankSaldo !== null && (
-              <View style={{ marginBottom: 10, padding: 10, backgroundColor: theme.tableRowBackgroundHover, borderRadius: 4 }}>
+              <View
+                style={{
+                  marginBottom: 10,
+                  padding: 10,
+                  backgroundColor: theme.tableRowBackgroundHover,
+                  borderRadius: 4,
+                }}
+              >
                 <Text style={{ fontSize: '0.9em' }}>
-                  <Trans>Bank balance from CSV: CHF {(bankSaldo / 100).toFixed(2)}</Trans>
+                  <Trans>
+                    Bank balance from CSV: CHF {(bankSaldo / 100).toFixed(2)}
+                  </Trans>
                 </Text>
               </View>
             )}
@@ -397,9 +453,9 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
               <TransactionList
                 transactions={transactions}
                 showParsed={false}
-                showStatus={true}
+                showStatus
                 showCurrency={false}
-                isSwissBankImport={true}
+                isSwissBankImport
                 parseDateFormat={null}
                 dateFormat={dateFormat}
                 fieldMappings={null}
@@ -410,7 +466,7 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
                 multiplierAmount=""
                 categories={categories.list}
                 categoryGroups={categories.grouped}
-                reconcile={true}
+                reconcile
                 onCheckTransaction={onCheckTransaction}
                 transactionCategories={transactionCategories}
                 onTransactionCategoryChange={onTransactionCategoryChange}
@@ -421,8 +477,16 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
             )}
 
             {error && (
-              <View style={{ color: theme.errorText, textAlign: 'center', marginTop: 10 }}>
-                <Text><strong>Error:</strong> {error.message}</Text>
+              <View
+                style={{
+                  color: theme.errorText,
+                  textAlign: 'center',
+                  marginTop: 10,
+                }}
+              >
+                <Text>
+                  <strong>Error:</strong> {error.message}
+                </Text>
               </View>
             )}
 
@@ -440,19 +504,35 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
                 <Text style={{ fontWeight: 'bold', marginBottom: 10 }}>
                   <Trans>Configure Migros Import Settings</Trans>
                 </Text>
-                <Text style={{ marginBottom: 15, color: theme.pageTextSubdued }}>
-                  <Trans>Select the account where Migros transactions should be imported.</Trans>
+                <Text
+                  style={{ marginBottom: 15, color: theme.pageTextSubdued }}
+                >
+                  <Trans>
+                    Select the account where Migros transactions should be
+                    imported.
+                  </Trans>
                 </Text>
 
                 <View style={{ marginBottom: 10 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <Text style={{ width: 150 }}><Trans>Migros Account:</Trans></Text>
+                  <label
+                    style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+                  >
+                    <Text style={{ width: 150 }}>
+                      <Trans>Migros Account:</Trans>
+                    </Text>
                     <Select
                       value={importSettings.migros_account}
-                      onChange={(e: string) => setImportSettings({ ...importSettings, migros_account: e })}
+                      onChange={(e: string) =>
+                        setImportSettings({
+                          ...importSettings,
+                          migros_account: e,
+                        })
+                      }
                       options={[
                         ['', t('Select an account...')] as [string, string],
-                        ...accounts.filter(a => !a.closed).map(a => [a.name, a.name] as [string, string]),
+                        ...accounts
+                          .filter(a => !a.closed)
+                          .map(a => [a.name, a.name] as [string, string]),
                       ]}
                       style={{ flex: 1 }}
                     />
@@ -473,7 +553,13 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
 
             {/* Import Button */}
             {!showSettingsDialog && loadingState !== 'parsing' && (
-              <View style={{ marginTop: 15, display: 'flex', justifyContent: 'flex-end' }}>
+              <View
+                style={{
+                  marginTop: 15,
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                }}
+              >
                 <ButtonWithLoading
                   variant="primary"
                   isLoading={loadingState === 'importing'}

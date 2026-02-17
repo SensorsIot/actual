@@ -529,7 +529,7 @@ export async function reconcileTransactions(
       let existingPayeeValid = false;
       if (existing.payee) {
         const existingPayeeRecord = await db.getPayee(existing.payee);
-        existingPayeeValid = !!(existingPayeeRecord?.name);
+        existingPayeeValid = !!existingPayeeRecord?.name;
       }
 
       // Update the transaction
@@ -539,19 +539,23 @@ export async function reconcileTransactions(
       let transPayeeId = trans.payee;
       if (trans.payee) {
         // Check if it's in payeesToCreate (will be created) or already exists in DB
-        const inPayeesToCreate = [...payeesToCreate.values()].some(p => p.id === trans.payee);
+        const inPayeesToCreate = [...payeesToCreate.values()].some(
+          p => p.id === trans.payee,
+        );
         if (inPayeesToCreate) {
           transPayeeValid = true;
         } else {
           const transPayeeRecord = await db.getPayee(trans.payee);
-          transPayeeValid = !!(transPayeeRecord?.name);
+          transPayeeValid = !!transPayeeRecord?.name;
         }
       }
 
       // If trans.payee is invalid but we have imported_payee name, try to find or create a valid payee
       if (!transPayeeValid && trans.imported_payee) {
         // First check payeesToCreate
-        const payeeInCreate = payeesToCreate.get(trans.imported_payee.toLowerCase());
+        const payeeInCreate = payeesToCreate.get(
+          trans.imported_payee.toLowerCase(),
+        );
         if (payeeInCreate) {
           transPayeeId = payeeInCreate.id;
           transPayeeValid = true;
@@ -572,7 +576,11 @@ export async function reconcileTransactions(
       }
 
       // Use existing payee if valid, otherwise use trans.payee if valid, otherwise null
-      const finalPayee = existingPayeeValid ? existing.payee : (transPayeeValid ? transPayeeId : null);
+      const finalPayee = existingPayeeValid
+        ? existing.payee
+        : transPayeeValid
+          ? transPayeeId
+          : null;
       const updates = {
         imported_id: trans.imported_id || null,
         payee: finalPayee,

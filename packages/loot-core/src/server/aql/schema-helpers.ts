@@ -25,7 +25,9 @@ export function convertInputType(value, type) {
         return toDateRepr(dayFromDate(value));
       } else if (typeof value !== 'string') {
         // Handle non-string values (numbers, etc.) by converting to string
-        throw new Error('Invalid date type: ' + typeof value + ' (' + value + ')');
+        throw new Error(
+          'Invalid date type: ' + typeof value + ' (' + value + ')',
+        );
       } else if (
         value.match(/^\d{4}-\d{2}-\d{2}$/) == null ||
         value < '1995-01-01'

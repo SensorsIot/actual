@@ -11,10 +11,9 @@
  * 3. No other modifications to Overview.tsx are needed for custom widgets
  */
 
-import { registerWidget } from './widgetRegistry';
-
 import { BudgetVsActualCard } from './reports/BudgetVsActualCard';
 import { CurrentAssetValueCard } from './reports/CurrentAssetValueCard';
+import { registerWidget } from './widgetRegistry';
 
 // Register Budget vs Actual widget
 registerWidget({
