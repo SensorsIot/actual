@@ -59,30 +59,36 @@ Report types:
 - Actual spending/income from transactions
 - Filters apply to both budget and actual queries
 - Respects show hidden categories setting
-- Option to show/hide income categories
+- Income categories are always shown (no toggle)
+- Only supports Tracking Budget mode (`reflect_budgets` table)
 
 ### Grouping and totals
 
 - Categories grouped under category groups
 - Subtotals per group and grand totals
 
+### Budget mode
+
+- Only supports **Tracking Budget** mode (`reflect_budgets` table)
+- Envelope budgeting (`zero_budgets`) is not supported
+
 ### Sign convention and variance rules
 
-**Storage convention:**
+**Storage convention (Tracking Budget / reflect_budgets):**
 
-- Expense budgets: stored as POSITIVE (+500)
-- Income budgets: stored as NEGATIVE (-1000)
+- All budgets (income and expense): stored as POSITIVE
 - Expense transactions: stored as NEGATIVE (-300)
 - Income transactions: stored as POSITIVE (+1000)
 
-**Display transformation (all positive):**
+**Display transformation (expense amounts negated at display layer):**
 
-- Income: negate budget (−1000 → +1000), keep actual (+1000)
-- Expense: keep budget (+500), negate actual (−300 → +300)
+- Expense amounts are negated so that both budgets and actuals display as positive numbers
+- Income amounts are displayed as-is (already positive in the database)
+- This negation happens in the table component (`BudgetVsActualTable.tsx`), not in the spreadsheet query
 
 **Variance calculation:**
 
-- Formula: Actual - Budget (uniform for all categories)
+- Formula: Actual - Budget (uniform for all categories, computed from display values)
 - Expense categories:
   - Positive variance = overspent (bad)
   - Negative variance = underspent (good)
@@ -113,7 +119,7 @@ Report types:
 Two-row header structure:
 
 - First row: Category | Month names (centered over Bud/Act pairs) | Total (centered over summary columns)
-- Second row: (empty) | Bud | Act (per month) | Bud | Act | Var | %
+- Second row: (empty) | Bud | Act (per month) | Bud | Act | Var
 
 Columns:
 
@@ -126,8 +132,7 @@ Columns:
 - **Total section**:
   - Total Budgeted (sum across all months)
   - Total Actual (sum across all months, clickable to drill down)
-  - Variance (budgeted - actual)
-  - % (percentage variance, hidden in compact mode)
+  - Variance (actual - budget)
 
 Table features:
 
@@ -139,8 +144,9 @@ Table features:
 ### Toolbar buttons
 
 - **Show/Hide hidden categories**: Toggle to include hidden categories
-- **Show/Hide income**: Toggle to include income categories in the report
 - **Saved Reports**: Save and load report configurations
+
+Note: Income categories are always shown; there is no toggle button for income visibility.
 
 ### Widget behavior
 
@@ -334,8 +340,8 @@ Column widths:
 
 - Modal name: `transactions-drilldown`
 - Options: categoryId, categoryName, month (optional), startDate, endDate, onTransactionChange (callback)
-- Modal width: 900px (max 95vw)
-- Columns: Date (100px), Payee (200px), Category (180px), Notes (flex), Amount (100px)
+- Modal width: 1200px (max 95vw)
+- Columns: Date (100px), Payee (350px), Category (180px), Notes (flex), Amount (100px)
 - Displays total row with transaction count
 - Query: Transactions filtered by category and date range
 
@@ -374,10 +380,11 @@ Column widths:
 ## Appendix B - Query and Calculation Logic
 
 - Budget vs Actual queries
-  - Budgets (zero_budgets), per month per category across the month range
-  - Transactions (expenses only), per month per category across the date range
+  - Budgets (`reflect_budgets`), per month per category across the month range
+  - Transactions (all, not filtered to expenses only), per month per category across the date range
   - Monthly data aggregated to group and total levels
-  - Variance = budgeted - abs(actual)
+  - Expense amounts negated at display layer (in `BudgetVsActualTable.tsx`) so budgets and actuals show as positive
+  - Variance = Actual - Budget (computed from display values)
   - Month format uses YYYYMM integers derived from the selected dates
 - Current Asset Value queries
   - For each active (non-closed) account, sum all transactions up to selected date
@@ -389,17 +396,17 @@ Schema reference:
 - `zero_budgets`: envelope budgeting
 - `reflect_budgets`: tracking budgeting (same schema as zero_budgets)
 
-Budget query (per month):
+Budget query (per month, Tracking Budget mode):
 
 ```typescript
-q('zero_budgets')
+q('reflect_budgets')
   .filter({
     $and: [{ month: { $gte: startMonth } }, { month: { $lte: endMonth } }],
   })
   .select(['category', 'month', 'amount']);
 ```
 
-Transaction query (per month):
+Transaction query (per month, all transactions including income):
 
 ```typescript
 q('transactions')
@@ -407,7 +414,6 @@ q('transactions')
     $and: [
       { date: { $transform: '$month', $gte: startDate } },
       { date: { $transform: '$month', $lte: endDate } },
-      { amount: { $lt: 0 } },
     ],
   })
   .filter({ 'account.offbudget': false })

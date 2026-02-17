@@ -9,7 +9,8 @@ This document describes the implementation of the **Budget vs Actual Report** fe
 - **Report Type**: Dashboard widget + Full report page
 - **Purpose**: Compare budgeted amounts against actual spending
 - **Grouping**: Categories grouped under category groups with subtotals
-- **Variance Display**: Color-coded (green = under budget, red = over budget)
+- **Variance Display**: Color-coded (expenses: green = under budget, red = over budget; income: green = earned more, red = earned less)
+- **Budget Mode**: Tracking Budget only (`reflect_budgets` table)
 
 ---
 
@@ -51,40 +52,39 @@ type BudgetVsActualData = {
 
 **Query Logic**:
 
-1. Queries `zero_budgets` table for budget amounts in the selected date range
-2. Queries `transactions` table for actual spending (expenses only, amount < 0)
+1. Queries `reflect_budgets` table (Tracking Budget mode) for budget amounts in the selected date range
+2. Queries `transactions` table for actual spending and income (all transactions, not filtered by sign)
 3. Groups data by category and category groups
-4. Calculates variance (budgeted - |actual|)
+4. Calculates variance (actual - budget, computed from display-layer values)
 
-**Budget Query**:
+**Budget Query** (Tracking Budget mode):
 
 ```typescript
-q('zero_budgets')
+q('reflect_budgets')
   .filter({
     $and: [
       { month: { $gte: startMonth } }, // YYYYMM format as integer
       { month: { $lte: endMonth } },
     ],
   })
-  .groupBy(['category'])
-  .select([{ category: 'category' }, { amount: { $sum: '$amount' } }]);
+  .select(['category', 'month', 'amount']);
 ```
 
-**Transaction Query**:
+**Transaction Query** (all transactions, including income):
 
 ```typescript
 q('transactions')
   .filter({
-    [conditionsOpKey]: [
-      ...transactionFilters,
-      { date: { $gte: startDate } },
-      { date: { $lte: endDate } },
-      { amount: { $lt: 0 } }, // Expenses only
+    $and: [
+      { date: { $transform: '$month', $gte: startDate } },
+      { date: { $transform: '$month', $lte: endDate } },
     ],
   })
-  .groupBy([{ $id: '$category' }])
+  .filter({ 'account.offbudget': false })
+  .groupBy([{ $id: '$category' }, { $month: '$date' }])
   .select([
-    { category: { $id: '$category' } },
+    { category: { $id: '$category.id' } },
+    { month: { $month: '$date' } },
     { amount: { $sum: '$amount' } },
   ]);
 ```
@@ -98,10 +98,12 @@ q('transactions')
 **Features**:
 
 - Collapsible category groups (click to expand/collapse)
-- Color-coded variance column:
-  - Green (`theme.noticeTextLight`): Under budget (positive variance)
-  - Red (`theme.errorText`): Over budget (negative variance)
-- Columns: Category | Budgeted | Actual | Variance
+- Color-coded variance column (Variance = Actual - Budget):
+  - Expense categories: negative variance = green (under budget), positive = red (over budget)
+  - Income categories: positive variance = green (earned more), negative = red (earned less)
+- Expense amounts negated at display layer so budgets and actuals show as positive
+- Columns: Category | Budgeted | Actual | Variance (percentage column removed)
+- Income categories always shown (no toggle button)
 - Group rows with bold styling and subtotals
 - Grand total row at bottom
 
@@ -286,9 +288,17 @@ const startMonth = parseInt(monthUtils.getMonth(startDate).replace('-', ''));
 ### Variance Calculation
 
 ```typescript
-variance = budgeted - Math.abs(actual);
-// Positive variance = under budget (good)
-// Negative variance = over budget (bad)
+// Expense amounts are negated at display layer (in BudgetVsActualTable.tsx)
+// so both budget and actual show as positive for expenses.
+// Variance is then computed uniformly:
+displayVariance = displayActual - displayBudgeted;
+
+// For expense categories:
+//   Positive variance = over budget (bad, red)
+//   Negative variance = under budget (good, green)
+// For income categories:
+//   Positive variance = earned more (good, green)
+//   Negative variance = earned less (bad, red)
 ```
 
 ### Hidden Categories
@@ -308,15 +318,16 @@ variance = budgeted - Math.abs(actual);
 
 ---
 
-# Swiss Bank CSV Import Enhancement
+# Swiss Bank Import Enhancement
 
 ## Overview
 
-This enhancement adds automatic detection and parsing support for Swiss bank CSV formats (Migros Bank and Revolut) in the existing transaction import functionality.
+This enhancement adds automatic detection and parsing support for Swiss bank formats (Migros Bank CSV, Revolut CSV, and Kantonalbank XLSX) in the existing transaction import functionality.
 
 ## Feature Summary
 
-- **Auto-detection**: Automatically detects Migros Bank and Revolut CSV formats
+- **Auto-detection**: Automatically detects Migros Bank CSV, Revolut CSV, and Kantonalbank XLSX formats
+- **XLSX Support**: File dialog accepts `.xlsx` files for Kantonalbank exports
 - **TWINT Support**: Extracts payee names from TWINT transaction descriptions
 - **Multi-currency**: Handles Revolut's multi-currency exports with automatic account creation
 - **Automatic Account Creation**: Creates "Revolut CHF", "Revolut EUR", etc. accounts as needed
@@ -332,7 +343,7 @@ This enhancement adds automatic detection and parsing support for Swiss bank CSV
 
 **Changes**:
 
-1. Added `SwissBankFormat` type: `'migros' | 'revolut' | 'auto' | null`
+1. Added `SwissBankFormat` type: `'migros' | 'revolut' | 'kantonalbank' | 'auto' | null`
 2. Added `swissBankFormat` option to `ParseFileOptions`
 3. Added `detectSwissBankFormat()` function for auto-detection
 4. Added `parseMigrosCSV()` function for Migros Bank format
@@ -349,7 +360,7 @@ This enhancement adds automatic detection and parsing support for Swiss bank CSV
 **Key Types**:
 
 ```typescript
-export type SwissBankFormat = 'migros' | 'revolut' | 'auto' | null;
+export type SwissBankFormat = 'migros' | 'revolut' | 'kantonalbank' | 'auto' | null;
 
 export type ParseFileOptions = {
   hasHeaderRow?: boolean;
@@ -424,7 +435,7 @@ type RevolutImportResult = {
 
 ---
 
-## CSV Format Detection
+## Format Detection
 
 ### Migros Bank Detection
 
@@ -450,6 +461,72 @@ Detected when CSV first line starts with:
 
 - Comma: `Art,Produkt,Abschlussdatum,Beschreibung,Betrag,Währung,...`
 - Tab: `Art	Produkt	Abschlussdatum	Beschreibung	Betrag	Währung	...`
+
+### Kantonalbank Detection (XLSX)
+
+Detected when XLSX header row contains all of:
+
+- `Auftragsdatum`
+- `Buchungstext`
+- `Belastungsbetrag` (or `Belastung`)
+
+Detection is case-insensitive and uses substring matching.
+
+**Expected columns**: `Auftragsdatum | Buchungstext | Valutadatum | Belastungsbetrag | Gutschriftsbetrag | Buchungswährung | Saldo`
+
+---
+
+## Kantonalbank XLSX Parsing
+
+### Input Format
+
+| Column            | Description                                     |
+| ----------------- | ----------------------------------------------- |
+| Auftragsdatum     | Order date (Excel date serial number)           |
+| Buchungstext      | Transaction description (multiline, see below)  |
+| Valutadatum       | Value date                                      |
+| Belastungsbetrag  | Debit amount (numeric)                          |
+| Gutschriftsbetrag | Credit amount (numeric)                         |
+| Buchungswährung   | Currency (e.g., CHF)                            |
+| Saldo             | Running balance                                 |
+
+### Amount Calculation
+
+```typescript
+amount = Gutschriftsbetrag - Belastungsbetrag;
+// Credit entries have Gutschriftsbetrag > 0, Belastungsbetrag = 0
+// Debit entries have Belastungsbetrag > 0, Gutschriftsbetrag = 0
+```
+
+### Buchungstext Parsing
+
+The `Buchungstext` field contains multiline text with different patterns depending on the transaction type. The parser (`parseKantonalbankBuchungstext`) recognizes:
+
+1. **Viseca Zahlung** (credit card payment via Viseca):
+   - Pattern: First line starts with `Viseca Zahlung`
+   - Payee: Line 2, last word stripped (typically the city)
+   - Notes: FX lines (`Originalbetrag`, `Währungskurs`)
+
+2. **TWINT-Zahlung** (TWINT mobile payment):
+   - Pattern: First line starts with `TWINT-Zahlung`
+   - Person transfer (contains "Geld gesendet"/"Geld erhalten"): payee is line after trigger, message lines become notes
+   - Merchant payment: payee is line 2, stripped after last comma
+
+3. **Zahlungsauftrag** (payment order):
+   - Pattern: First line starts with `Zahlungsauftrag`
+   - Payee: line after the last "Schweiz" line; fallback to first non-keyword line
+   - Notes: `Mitteilung:` and `ESR/QR Referenz:` lines
+
+4. **Zahlungseingang** (incoming payment):
+   - Pattern: First line starts with `Zahlungseingang`
+   - Payee: Line 2
+   - Notes: `Mitteilung:` and `Information:` lines
+
+5. **Default**: First line as payee, remaining lines as notes
+
+### Balance Tracking
+
+The last `Saldo` value in the XLSX is stored as `bankSaldo` in the parse result metadata for balance verification.
 
 ---
 
@@ -1560,3 +1637,14 @@ When merging transactions, fields are updated with this priority:
 | `notes`          | Prefer existing, fallback to imported                    |
 | `imported_payee` | Always use imported value                                |
 | `cleared`        | Prefer existing, fallback to imported                    |
+
+---
+
+## Upstream Sync Notes
+
+The `kantonalbank` branch periodically merges upstream changes from `actualbudget/actual`. The following adaptations were required after merging 129 upstream commits:
+
+- **`fetch` renamed to `connection`**: The upstream sync module was renamed. All imports of `fetch` from `loot-core/platform` now use `connection`.
+- **`useCategories` returns react-query result**: The hook now returns a react-query result object instead of the categories directly. Components destructure `{ data: categories }` from the hook.
+- **`Widget` renamed to `DashboardWidgetEntity`**: The type for dashboard widgets was renamed in `dashboard.ts`. All custom widget code updated to use `DashboardWidgetEntity`.
+- **Various API changes**: Minor adjustments to type signatures and component props to match upstream changes.

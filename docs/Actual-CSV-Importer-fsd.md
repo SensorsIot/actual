@@ -4,7 +4,7 @@
 
 This document specifies the Swiss bank CSV importer behavior for Actual Budget.
 
-The importer currently supports Migros Bank and Revolut CSV exports. Each bank has its own chapter so additional banks can be added as new chapters in the future.
+The importer currently supports Migros Bank, Revolut CSV exports, and Kantonalbank XLSX exports. Each bank has its own chapter so additional banks can be added as new chapters in the future.
 
 ## Architecture
 
@@ -14,6 +14,7 @@ Each Swiss bank format has its own dedicated modal component:
 
 - `ImportRevolutModal.tsx` - Revolut-specific import flow
 - `ImportMigrosModal.tsx` - Migros Bank-specific import flow
+- `ImportKantonalbankModal.tsx` - Kantonalbank-specific import flow
 - `ImportTransactionsModal.tsx` - Generic CSV/OFX/QIF imports (unchanged)
 
 ### Shared libraries
@@ -39,14 +40,15 @@ When importing a file via `Account.tsx`:
 2. Based on `metadata.bankFormat`:
    - `'revolut'` → Opens `import-revolut` modal
    - `'migros'` → Opens `import-migros` modal
+   - `'kantonalbank'` → Opens `import-kantonalbank` modal
    - Other → Opens `import-transactions` modal (generic)
 
 ## Common Behavior (Shared)
 
-### Format detection
+### File types and format detection
 
-- The importer auto-detects Migros Bank and Revolut CSV formats based on header or first-line patterns.
-- Revolut delimiter is auto-detected by checking for tabs in the first line.
+- **CSV files**: The importer auto-detects Migros Bank and Revolut formats based on header or first-line patterns. Revolut delimiter is auto-detected by checking for tabs in the first line.
+- **XLSX files**: The file dialog accepts `.xlsx` files. XLSX parsing auto-detects Kantonalbank format based on header row column names.
 
 ### First-import prompts
 
@@ -207,6 +209,70 @@ This handles both import orders:
 
 - The user selects the topup bank account and cash account during first import.
 - The selections are saved in `import_settings.json` for future use.
+
+## Import Kantonalbank
+
+### File format
+
+- **XLSX** format (not CSV). The file dialog accepts `.xlsx` files in addition to `.csv`, `.ofx`, `.qif`, and `.qfx`.
+- Expected columns: Auftragsdatum, Buchungstext, Valutadatum, Belastungsbetrag, Gutschriftsbetrag, Buchungswährung, Saldo
+
+### Format detection (Kantonalbank)
+
+- Detected when the XLSX header row contains all of: `Auftragsdatum`, `Buchungstext`, and `Belastungsbetrag` (or `Belastung`).
+- Detection is case-insensitive and uses substring matching on each header cell.
+- If no known XLSX format is detected, an error is returned.
+
+### Parsing and normalization
+
+- Dates are parsed from Excel date serial numbers using the `xlsx` library with `cellDates: true`.
+- Amounts are computed as `Gutschriftsbetrag - Belastungsbetrag` (credit minus debit).
+- The last `Saldo` value is tracked for balance verification (`bankSaldo` in metadata).
+- Amounts are stored in cents internally.
+
+### Payee extraction (Buchungstext parser)
+
+The `Buchungstext` field contains multiline text. The parser (`parseKantonalbankBuchungstext`) recognizes four patterns:
+
+**1. Viseca Zahlung** (card payment via Viseca):
+
+- First line starts with `Viseca Zahlung`
+- Payee: line 2, with the last word (city) stripped
+- Notes: FX information lines (Originalbetrag, Wahrungskurs)
+
+**2. TWINT-Zahlung** (TWINT payments):
+
+- First line starts with `TWINT-Zahlung`
+- Two sub-patterns:
+  - **Person transfer** (contains "Geld gesendet" or "Geld erhalten"): payee is the line after the trigger phrase; message lines before timestamp become notes
+  - **Merchant payment**: payee is line 2, stripped after last comma
+
+**3. Zahlungsauftrag** (payment order):
+
+- First line starts with `Zahlungsauftrag`
+- Payee: line after the last "Schweiz" line; fallback to first non-keyword line
+- Notes: `Mitteilung:` and `ESR/QR Referenz:` lines
+
+**4. Zahlungseingang** (incoming payment):
+
+- First line starts with `Zahlungseingang`
+- Payee: line 2
+- Notes: `Mitteilung:` and `Information:` lines
+
+**5. Default**:
+
+- First line used as payee, remaining lines as notes
+
+### UI behavior (Kantonalbank)
+
+- Uses the same Swiss bank import modal layout as Migros and Revolut.
+- One row per XLSX row in the preview table.
+- Notes and category are editable for all transactions.
+
+### Modal routing
+
+- When `metadata.bankFormat` is `'kantonalbank'`, the `import-kantonalbank` modal is opened.
+- The modal component is `ImportKantonalbankModal.tsx`.
 
 ## Transfer Linking Mechanism
 
@@ -377,7 +443,7 @@ The following transaction types are skipped entirely during import:
 
 ## Appendix A - Data Models and Types
 
-- `SwissBankFormat`: `migros | revolut | auto | null`
+- `SwissBankFormat`: `migros | revolut | kantonalbank | auto | null`
 - `ParseFileOptions`: includes `swissBankFormat`
 - `StructuredTransaction`: includes optional `currency`, `transfer_account`, `transaction_type`, `imported_id`
 
@@ -403,10 +469,11 @@ The following transaction types are skipped entirely during import:
 | ------------------------- | ------------------------------------------------------------------------------ |
 | Parser & format detection | `packages/loot-core/src/server/transactions/import/parse-file.ts`              |
 | Import handlers           | `packages/loot-core/src/server/accounts/app.ts`                                |
-| Revolut modal             | `packages/desktop-client/src/components/modals/ImportRevolutModal.tsx`         |
-| Migros modal              | `packages/desktop-client/src/components/modals/ImportMigrosModal.tsx`          |
-| Shared hooks              | `packages/desktop-client/src/components/modals/hooks/useSwissBankImport.ts`    |
-| Transaction list          | `packages/desktop-client/src/components/modals/components/TransactionList.tsx` |
+| Revolut modal             | `packages/desktop-client/src/components/modals/ImportTransactionsModal/ImportRevolutModal.tsx`         |
+| Migros modal              | `packages/desktop-client/src/components/modals/ImportTransactionsModal/ImportMigrosModal.tsx`          |
+| Kantonalbank modal        | `packages/desktop-client/src/components/modals/ImportTransactionsModal/ImportKantonalbankModal.tsx`    |
+| Shared hooks              | `packages/desktop-client/src/components/modals/ImportTransactionsModal/hooks/useSwissBankImport.ts`    |
+| Transaction list          | `packages/desktop-client/src/components/modals/ImportTransactionsModal/components/TransactionList.tsx` |
 
 ### Key functions
 
@@ -416,6 +483,9 @@ The following transaction types are skipped entirely during import:
 - `classifyMigrosTransaction()` - Classifies Migros transaction types and sets `transferAccount`
 - `parseRevolutCSV()` - Parses Revolut CSV with multi-currency support
 - `parseMigrosCSV()` - Parses Migros Bank CSV
+- `parseKantonalbankXLSX()` - Parses Kantonalbank XLSX with column mapping
+- `parseKantonalbankBuchungstext()` - Extracts payee and notes from Kantonalbank Buchungstext field
+- `parseXLSX()` - Entry point for XLSX parsing with format auto-detection
 
 **app.ts**:
 
