@@ -1,26 +1,24 @@
-// @ts-strict-ignore
+import type { QueryClient } from '@tanstack/react-query';
 import { t } from 'i18next';
 
-import { listen, send } from 'loot-core/platform/client/fetch';
+import { listen, send } from 'loot-core/platform/client/connection';
 
-import { reloadAccounts } from './accounts/accountsSlice';
+import { accountQueries } from './accounts';
 import { resetSync, sync } from './app/appSlice';
-import { reloadCategories } from './budget/budgetSlice';
+import { categoryQueries } from './budget';
 import {
   closeAndDownloadBudget,
   uploadBudget,
 } from './budgetfiles/budgetfilesSlice';
 import { pushModal } from './modals/modalsSlice';
-import {
-  addNotification,
-  type Notification,
-} from './notifications/notificationsSlice';
+import { addNotification } from './notifications/notificationsSlice';
+import type { Notification } from './notifications/notificationsSlice';
 import { reloadPayees } from './payees/payeesSlice';
 import { loadPrefs } from './prefs/prefsSlice';
-import { type AppStore } from './redux/store';
+import type { AppStore } from './redux/store';
 import { signOut } from './users/usersSlice';
 
-export function listenForSyncEvent(store: AppStore) {
+export function listenForSyncEvent(store: AppStore, queryClient: QueryClient) {
   // TODO: Should this run on mobile too?
   const unlistenUnauthorized = listen('sync-event', async ({ type }) => {
     if (type === 'unauthorized') {
@@ -72,7 +70,9 @@ export function listenForSyncEvent(store: AppStore) {
         tables.includes('category_groups') ||
         tables.includes('category_mapping')
       ) {
-        store.dispatch(reloadCategories());
+        queryClient.invalidateQueries({
+          queryKey: categoryQueries.lists(),
+        });
       }
 
       if (
@@ -85,7 +85,9 @@ export function listenForSyncEvent(store: AppStore) {
       }
 
       if (tables.includes('accounts')) {
-        store.dispatch(reloadAccounts());
+        queryClient.invalidateQueries({
+          queryKey: accountQueries.lists(),
+        });
       }
     } else if (event.type === 'error') {
       let notif: Notification | null = null;
@@ -250,6 +252,12 @@ export function listenForSyncEvent(store: AppStore) {
           // few things depending on the state, and we try to show an
           // appropriate message and call to action to fix it.
           const { cloudFileId } = store.getState().prefs.local;
+          if (!cloudFileId) {
+            console.error(
+              'Received file-has-reset or file-has-new-key error but no cloudFileId in prefs',
+            );
+            break;
+          }
 
           notif = {
             title: t('Syncing has been reset on this cloud file'),
@@ -274,7 +282,7 @@ export function listenForSyncEvent(store: AppStore) {
           break;
         case 'encrypt-failure':
         case 'decrypt-failure':
-          if (event.meta.isMissingKey) {
+          if (event.meta?.isMissingKey) {
             notif = {
               title: t('Missing encryption key'),
               message: t(
@@ -344,19 +352,19 @@ export function listenForSyncEvent(store: AppStore) {
         case 'network':
           // Show nothing
           break;
-        case 'token-expired':
+        case 'clock-drift':
           notif = {
-            title: 'Login expired',
-            message: 'Please login again.',
+            title: t('Time sync issue'),
+            message: t(
+              'Failed to sync because your device time differs too much from the server. Please check your device time settings and ensure they are correct.',
+            ),
+            type: 'warning',
             sticky: true,
-            id: 'login-expired',
-            button: {
-              title: 'Go to login',
-              action: () => {
-                store.dispatch(signOut());
-              },
-            },
           };
+          break;
+        case 'token-expired':
+          notif = null;
+          store.dispatch(signOut());
           break;
         default:
           console.trace('unknown error', event);

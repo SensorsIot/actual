@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Dialog, DialogTrigger } from 'react-aria-components';
-import { Responsive, WidthProvider, type Layout } from 'react-grid-layout';
+import ReactGridLayout from 'react-grid-layout';
+import type { Layout } from 'react-grid-layout';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { Trans, useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router';
@@ -11,16 +12,14 @@ import { SvgDotsHorizontalTriple } from '@actual-app/components/icons/v1';
 import { Menu } from '@actual-app/components/menu';
 import { Popover } from '@actual-app/components/popover';
 import { theme } from '@actual-app/components/theme';
-import { breakpoints } from '@actual-app/components/tokens';
 import { View } from '@actual-app/components/view';
 
-import { send } from 'loot-core/platform/client/fetch';
 import type {
   CustomReportWidget,
-  DashboardEntity,
+  DashboardPageEntity,
+  DashboardWidgetEntity,
   ExportImportDashboard,
   MarkdownWidget,
-  Widget,
 } from 'loot-core/types/models';
 
 import { NON_DRAGGABLE_AREA_CLASS_NAME } from './constants';
@@ -29,6 +28,7 @@ import './customWidgetRegistrations';
 import { DashboardHeader } from './DashboardHeader';
 import { DashboardSelector } from './DashboardSelector';
 import { LoadingIndicator } from './LoadingIndicator';
+import { BudgetAnalysisCard } from './reports/BudgetAnalysisCard';
 import { CalendarCard } from './reports/CalendarCard';
 import { CashFlowCard } from './reports/CashFlowCard';
 import { CrossoverCard } from './reports/CrossoverCard';
@@ -49,12 +49,13 @@ import { MOBILE_NAV_HEIGHT } from '@desktop-client/components/mobile/MobileNavTa
 import { MobilePageHeader, Page } from '@desktop-client/components/Page';
 import { useAccounts } from '@desktop-client/hooks/useAccounts';
 import {
-  useDashboard,
   useDashboardPages,
-} from '@desktop-client/hooks/useDashboard';
+  useDashboardPageWidgets,
+} from '@desktop-client/hooks/useDashboardPages';
 import { useFeatureFlag } from '@desktop-client/hooks/useFeatureFlag';
 import { useNavigate } from '@desktop-client/hooks/useNavigate';
 import { useReports } from '@desktop-client/hooks/useReports';
+import { useResizeObserver } from '@desktop-client/hooks/useResizeObserver';
 import { useSyncedPref } from '@desktop-client/hooks/useSyncedPref';
 import { useUndo } from '@desktop-client/hooks/useUndo';
 import {
@@ -62,15 +63,25 @@ import {
   removeNotification,
 } from '@desktop-client/notifications/notificationsSlice';
 import { useDispatch } from '@desktop-client/redux';
+import {
+  useAddDashboardWidgetMutation,
+  useCopyDashboardWidgetMutation,
+  useDeleteDashboardPageMutation,
+  useImportDashboardPageMutation,
+  useRemoveDashboardWidgetMutation,
+  useResetDashboardPageMutation,
+  useUpdateDashboardWidgetMutation,
+  useUpdateDashboardWidgetsMutation,
+} from '@desktop-client/reports/mutations';
 
-const ResponsiveGridLayout = WidthProvider(Responsive);
-
-function isCustomReportWidget(widget: Widget): widget is CustomReportWidget {
+function isCustomReportWidget(
+  widget: DashboardWidgetEntity,
+): widget is CustomReportWidget {
   return widget.type === 'custom-report';
 }
 
 type OverviewProps = {
-  dashboard: DashboardEntity;
+  dashboard: DashboardPageEntity;
 };
 
 export function Overview({ dashboard }: OverviewProps) {
@@ -79,35 +90,44 @@ export function Overview({ dashboard }: OverviewProps) {
   const [_firstDayOfWeekIdx] = useSyncedPref('firstDayOfWeekIdx');
   const firstDayOfWeekIdx = _firstDayOfWeekIdx || '0';
   const crossoverReportEnabled = useFeatureFlag('crossoverReport');
+  const budgetAnalysisReportEnabled = useFeatureFlag('budgetAnalysisReport');
 
   const formulaMode = useFeatureFlag('formulaMode');
 
   const [isImporting, setIsImporting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [currentBreakpoint, setCurrentBreakpoint] = useState<
-    'mobile' | 'desktop'
-  >('desktop');
+  const { isNarrowWidth } = useResponsive();
+  const currentBreakpoint: 'mobile' | 'desktop' = isNarrowWidth
+    ? 'mobile'
+    : 'desktop';
 
-  const { data: customReports, isLoading: isCustomReportsLoading } =
+  const { data: customReports = [], isPending: isCustomReportsLoading } =
     useReports();
 
   const customReportMap = useMemo(
     () => new Map(customReports.map(report => [report.id, report])),
     [customReports],
   );
-  const { data: dashboard_pages = [] } = useDashboardPages();
+  const { data: dashboardPages = [], isPending: isDashboardPageLoading } =
+    useDashboardPages();
 
-  const { data: widgets, isLoading: isWidgetsLoading } = useDashboard(
-    dashboard.id,
-  );
+  const { data: widgets = [], isPending: isWidgetsLoading } =
+    useDashboardPageWidgets(dashboard.id);
 
-  const isLoading = isCustomReportsLoading || isWidgetsLoading;
+  const isLoading =
+    isCustomReportsLoading || isWidgetsLoading || isDashboardPageLoading;
 
-  const { isNarrowWidth } = useResponsive();
   const navigate = useNavigate();
 
   const location = useLocation();
   sessionStorage.setItem('url', location.pathname);
+
+  const [containerWidth, setContainerWidth] = useState(0);
+  const handleResize = useCallback((contentRect: DOMRectReadOnly) => {
+    setContainerWidth(Math.floor(contentRect.width));
+  }, []);
+  const containerRef = useResizeObserver<HTMLDivElement>(handleResize);
+  const isMounted = containerWidth > 0;
 
   const mobileLayout = useMemo(() => {
     if (!widgets || widgets.length === 0) {
@@ -131,7 +151,6 @@ export function Overview({ dashboard }: OverviewProps) {
       currentY += widget.height;
 
       return {
-        ...widget,
         i: widget.id,
         x: 0,
         y: itemY, // Calculate correct y co-ordinate to prevent react-grid-layout's auto-compacting behaviour
@@ -145,15 +164,26 @@ export function Overview({ dashboard }: OverviewProps) {
     if (!widgets) return [];
     return widgets.map(widget => ({
       i: widget.id,
+      x: widget.x,
+      y: widget.y,
       w: widget.width,
       h: widget.height,
       minW:
         isCustomReportWidget(widget) || widget.type === 'markdown-card' ? 2 : 3,
       minH:
         isCustomReportWidget(widget) || widget.type === 'markdown-card' ? 1 : 2,
-      ...widget,
     }));
   }, [widgets]);
+
+  const currentLayout = useMemo(
+    () => (currentBreakpoint === 'desktop' ? desktopLayout : mobileLayout),
+    [currentBreakpoint, desktopLayout, mobileLayout],
+  );
+
+  const widgetMap = useMemo(
+    () => new Map((widgets ?? []).map(widget => [widget.id, widget])),
+    [widgets],
+  );
 
   const closeNotifications = () => {
     dispatch(removeNotification({ id: 'import' }));
@@ -191,59 +221,72 @@ export function Overview({ dashboard }: OverviewProps) {
     );
   };
 
-  const onBreakpointChange = (breakpoint: 'mobile' | 'desktop') => {
-    setCurrentBreakpoint(breakpoint);
-  };
+  const resetDashboardPageMutation = useResetDashboardPageMutation();
 
   const onResetDashboard = async () => {
     setIsImporting(true);
-    await send('dashboard-reset', dashboard.id);
-    setIsImporting(false);
 
-    onDispatchSucessNotification(
-      t(
-        "Dashboard has been successfully reset to default state. Don't like what you see? You can always press [ctrl+z](#undo) to undo.",
-      ),
+    resetDashboardPageMutation.mutate(
+      {
+        id: dashboard.id,
+      },
+      {
+        onSettled: () => {
+          setIsImporting(false);
+        },
+        onSuccess: () => {
+          onDispatchSucessNotification(
+            t(
+              "Dashboard has been successfully reset to default state. Don't like what you see? You can always press [ctrl+z](#undo) to undo.",
+            ),
+          );
+        },
+      },
     );
   };
 
-  const onLayoutChange = (newLayout: Layout[]) => {
+  const updateDashboardWidgetsMutation = useUpdateDashboardWidgetsMutation();
+
+  const onLayoutChange = (newLayout: Layout) => {
     if (!isEditing) {
       return;
     }
 
-    send(
-      'dashboard-update',
-      newLayout.map(item => ({
+    updateDashboardWidgetsMutation.mutate({
+      widgets: newLayout.map(item => ({
         id: item.i,
         width: item.w,
         height: item.h,
         x: item.x,
         y: item.y,
       })),
-    );
-  };
-
-  const onAddWidget = <T extends Widget>(
-    type: T['type'],
-    meta: T['meta'] = null,
-  ) => {
-    send('dashboard-add-widget', {
-      type,
-      width: 4,
-      height: 2,
-      meta,
-      dashboard_page_id: dashboard.id,
     });
   };
 
+  const addDashboardWidgetMutation = useAddDashboardWidgetMutation();
+
+  const onAddWidget = <T extends DashboardWidgetEntity>(
+    type: T['type'],
+    meta: T['meta'] = null,
+  ) => {
+    addDashboardWidgetMutation.mutate({
+      widget: {
+        type,
+        width: 4,
+        height: 2,
+        meta,
+        dashboard_page_id: dashboard.id,
+      },
+    });
+  };
+
+  const removeDashboardWidgetMutation = useRemoveDashboardWidgetMutation();
+
   const onRemoveWidget = (widgetId: string) => {
-    send('dashboard-remove-widget', widgetId);
+    removeDashboardWidgetMutation.mutate({ id: widgetId });
   };
 
   const onExport = () => {
-    const widgetMap = new Map(widgets.map(item => [item.id, item]));
-
     const data = {
       version: 1,
       widgets: desktopLayout.map(item => {
@@ -278,6 +321,9 @@ export function Overview({ dashboard }: OverviewProps) {
       t('Export Dashboard'),
     );
   };
+
+  const importDashboardPageMutation = useImportDashboardPageMutation();
+
   const onImport = async () => {
     const openFileDialog = window.Actual.openFileDialog;
 
@@ -295,7 +341,7 @@ export function Overview({ dashboard }: OverviewProps) {
       return;
     }
 
-    const [filepath] = await openFileDialog({
+    const [filePath] = await openFileDialog({
       properties: ['openFile'],
       filters: [
         {
@@ -307,82 +353,107 @@ export function Overview({ dashboard }: OverviewProps) {
 
     closeNotifications();
     setIsImporting(true);
-    const res = await send('dashboard-import', {
-      filepath,
-      dashboardPageId: dashboard.id,
-    });
-    setIsImporting(false);
 
-    if ('error' in res) {
-      switch (res.error) {
-        case 'json-parse-error':
-          dispatch(
-            addNotification({
-              notification: {
-                id: 'import',
-                type: 'error',
-                message: t('Failed parsing the imported JSON.'),
-              },
-            }),
+    importDashboardPageMutation.mutate(
+      {
+        filePath,
+        dashboardPageId: dashboard.id,
+      },
+      {
+        onSettled: () => {
+          setIsImporting(false);
+        },
+        onSuccess: () => {
+          onDispatchSucessNotification(
+            t(
+              "Dashboard has been successfully imported. Don't like what you see? You can always press [ctrl+z](#undo) to undo.",
+            ),
           );
-          break;
+        },
+        onError: error => {
+          const originalError = error.cause;
+          if (originalError instanceof Error) {
+            switch (originalError.cause) {
+              case 'json-parse-error':
+                dispatch(
+                  addNotification({
+                    notification: {
+                      id: 'import',
+                      type: 'error',
+                      message: t('Failed parsing the imported JSON.'),
+                    },
+                  }),
+                );
+                break;
 
-        case 'validation-error':
-          dispatch(
-            addNotification({
-              notification: {
-                id: 'import',
-                type: 'error',
-                message: res.message,
-              },
-            }),
-          );
-          break;
+              case 'validation-error':
+                dispatch(
+                  addNotification({
+                    notification: {
+                      id: 'import',
+                      type: 'error',
+                      message: error.message,
+                    },
+                  }),
+                );
+                break;
 
-        default:
-          dispatch(
-            addNotification({
-              notification: {
-                id: 'import',
-                type: 'error',
-                message: t('Failed importing the dashboard file.'),
-              },
-            }),
-          );
-          break;
-      }
-      return;
-    }
-
-    onDispatchSucessNotification(
-      t(
-        "Dashboard has been successfully imported. Don't like what you see? You can always press [ctrl+z](#undo) to undo.",
-      ),
+              default:
+                dispatch(
+                  addNotification({
+                    notification: {
+                      id: 'import',
+                      type: 'error',
+                      message: t('Failed importing the dashboard file.'),
+                    },
+                  }),
+                );
+                break;
+            }
+          }
+        },
+      },
     );
   };
 
-  const onMetaChange = (widget: { i: string }, newMeta: Widget['meta']) => {
-    send('dashboard-update-widget', {
-      id: widget.i,
-      meta: newMeta,
+  const updateDashboardWidgetMutation = useUpdateDashboardWidgetMutation();
+
+  const onMetaChange = (
+    widget: { i: string },
+    newMeta: DashboardWidgetEntity['meta'],
+  ) => {
+    updateDashboardWidgetMutation.mutate({
+      widget: {
+        id: widget.i,
+        meta: newMeta,
+      },
     });
   };
 
+  const copyDashboardWidgetMutation = useCopyDashboardWidgetMutation();
+
   const onCopyWidget = (widgetId: string, targetDashboardId: string) => {
-    send('dashboard-copy-widget', {
-      widgetId,
+    copyDashboardWidgetMutation.mutate({
+      id: widgetId,
       targetDashboardPageId: targetDashboardId,
     });
   };
 
-  const onDeleteDashboard = async (id: string) => {
-    await send('dashboard-delete', id);
+  const deleteDashboardPageMutation = useDeleteDashboardPageMutation();
 
-    const next_dashboard = dashboard_pages.find(d => d.id !== id);
-    // NOTE: This should hold since invariant dashboard_pages > 1
-    if (next_dashboard) {
-      navigate(`/reports/${next_dashboard.id}`);
-    }
+  const onDeleteDashboard = async (id: string) => {
+    deleteDashboardPageMutation.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          const nextDashboard = dashboardPages.find(d => d.id !== id);
+          // NOTE: This should hold since invariant dashboard_pages > 1
+          if (nextDashboard) {
+            navigate(`/reports/${nextDashboard.id}`);
+          }
+        },
+      },
+    );
   };
 
   const accounts = useAccounts();
@@ -416,7 +487,7 @@ export function Overview({ dashboard }: OverviewProps) {
               }}
             >
               <DashboardSelector
-                dashboards={dashboard_pages}
+                dashboards={dashboardPages}
                 currentDashboard={dashboard}
               />
             </View>
@@ -444,7 +515,7 @@ export function Overview({ dashboard }: OverviewProps) {
                 <>
                   {/* Dashboard Selector */}
                   <DashboardSelector
-                    dashboards={dashboard_pages}
+                    dashboards={dashboardPages}
                     currentDashboard={dashboard}
                   />
 
@@ -495,12 +566,12 @@ export function Overview({ dashboard }: OverviewProps) {
 
                             // Handle registered widgets from the registry
                             if (isRegisteredWidget(item)) {
-                              onAddWidget(item as Widget['type']);
+                              onAddWidget(item as DashboardWidgetEntity['type']);
                               return;
                             }
 
                             // Fallback for core widgets
-                            onAddWidget(item as Widget['type']);
+                            onAddWidget(item as DashboardWidgetEntity['type']);
                           }}
                           items={[
                             {
@@ -523,6 +594,14 @@ export function Overview({ dashboard }: OverviewProps) {
                               name: 'spending-card' as const,
                               text: t('Spending analysis'),
                             },
+                            ...(budgetAnalysisReportEnabled
+                              ? [
+                                  {
+                                    name: 'budget-analysis-card' as const,
+                                    text: t('Budget analysis'),
+                                  },
+                                ]
+                              : []),
                             // Custom widgets from registry
                             ...getWidgetMenuItems(t),
                             {
@@ -634,7 +713,7 @@ export function Overview({ dashboard }: OverviewProps) {
                               name: 'delete',
                               text: t('Delete dashboard'),
                               disabled:
-                                isImporting || dashboard_pages.length <= 1,
+                                isImporting || dashboardPages.length <= 1,
                             },
                           ]}
                         />
@@ -655,137 +734,169 @@ export function Overview({ dashboard }: OverviewProps) {
         <div>
           <View
             data-testid="reports-overview"
+            innerRef={containerRef}
             style={{ userSelect: 'none', paddingBottom: MOBILE_NAV_HEIGHT }}
           >
-            <ResponsiveGridLayout
-              breakpoints={{ desktop: breakpoints.medium, mobile: 1 }}
-              layouts={{ desktop: desktopLayout, mobile: mobileLayout }}
-              onLayoutChange={
-                currentBreakpoint === 'desktop' ? onLayoutChange : undefined
-              }
-              onBreakpointChange={onBreakpointChange}
-              cols={{ desktop: 12, mobile: 1 }}
-              rowHeight={100}
-              draggableCancel={`.${NON_DRAGGABLE_AREA_CLASS_NAME}`}
-              isDraggable={currentBreakpoint === 'desktop' && isEditing}
-              isResizable={currentBreakpoint === 'desktop' && isEditing}
-            >
-              {desktopLayout.map(item => (
-                <div key={item.i}>
-                  {item.type === 'net-worth-card' ? (
-                    <NetWorthCard
-                      widgetId={item.i}
-                      isEditing={isEditing}
-                      accounts={accounts}
-                      meta={item.meta}
-                      onMetaChange={newMeta => onMetaChange(item, newMeta)}
-                      onRemove={() => onRemoveWidget(item.i)}
-                      onCopy={targetDashboardId =>
-                        onCopyWidget(item.i, targetDashboardId)
-                      }
-                    />
-                  ) : item.type === 'crossover-card' &&
-                    crossoverReportEnabled ? (
-                    <CrossoverCard
-                      widgetId={item.i}
-                      isEditing={isEditing}
-                      accounts={accounts}
-                      meta={item.meta}
-                      onMetaChange={newMeta => onMetaChange(item, newMeta)}
-                      onRemove={() => onRemoveWidget(item.i)}
-                      onCopy={targetDashboardId =>
-                        onCopyWidget(item.i, targetDashboardId)
-                      }
-                    />
-                  ) : item.type === 'cash-flow-card' ? (
-                    <CashFlowCard
-                      widgetId={item.i}
-                      isEditing={isEditing}
-                      meta={item.meta}
-                      onMetaChange={newMeta => onMetaChange(item, newMeta)}
-                      onRemove={() => onRemoveWidget(item.i)}
-                      onCopy={targetDashboardId =>
-                        onCopyWidget(item.i, targetDashboardId)
-                      }
-                    />
-                  ) : item.type === 'spending-card' ? (
-                    <SpendingCard
-                      widgetId={item.i}
-                      isEditing={isEditing}
-                      meta={item.meta}
-                      onMetaChange={newMeta => onMetaChange(item, newMeta)}
-                      onRemove={() => onRemoveWidget(item.i)}
-                      onCopy={targetDashboardId =>
-                        onCopyWidget(item.i, targetDashboardId)
-                      }
-                    />
-                  ) : isRegisteredWidget(item.type) ? (
-                    renderRegisteredWidget(item.type, {
-                      widgetId: item.i,
-                      isEditing,
-                      meta: item.meta,
-                      onMetaChange: newMeta => onMetaChange(item, newMeta),
-                      onRemove: () => onRemoveWidget(item.i),
-                      onCopy: targetDashboardId =>
-                        onCopyWidget(item.i, targetDashboardId),
-                    })
-                  ) : item.type === 'markdown-card' ? (
-                    <MarkdownCard
-                      isEditing={isEditing}
-                      meta={item.meta}
-                      onMetaChange={newMeta => onMetaChange(item, newMeta)}
-                      onRemove={() => onRemoveWidget(item.i)}
-                      onCopy={targetDashboardId =>
-                        onCopyWidget(item.i, targetDashboardId)
-                      }
-                    />
-                  ) : item.type === 'custom-report' ? (
-                    <CustomReportListCards
-                      isEditing={isEditing}
-                      report={customReportMap.get(item.meta.id)}
-                      onRemove={() => onRemoveWidget(item.i)}
-                      onCopy={targetDashboardId =>
-                        onCopyWidget(item.i, targetDashboardId)
-                      }
-                    />
-                  ) : item.type === 'summary-card' ? (
-                    <SummaryCard
-                      widgetId={item.i}
-                      isEditing={isEditing}
-                      meta={item.meta}
-                      onMetaChange={newMeta => onMetaChange(item, newMeta)}
-                      onRemove={() => onRemoveWidget(item.i)}
-                      onCopy={targetDashboardId =>
-                        onCopyWidget(item.i, targetDashboardId)
-                      }
-                    />
-                  ) : item.type === 'calendar-card' ? (
-                    <CalendarCard
-                      widgetId={item.i}
-                      isEditing={isEditing}
-                      meta={item.meta}
-                      firstDayOfWeekIdx={firstDayOfWeekIdx}
-                      onMetaChange={newMeta => onMetaChange(item, newMeta)}
-                      onRemove={() => onRemoveWidget(item.i)}
-                      onCopy={targetDashboardId =>
-                        onCopyWidget(item.i, targetDashboardId)
-                      }
-                    />
-                  ) : item.type === 'formula-card' && formulaMode ? (
-                    <FormulaCard
-                      widgetId={item.i}
-                      isEditing={isEditing}
-                      meta={item.meta}
-                      onMetaChange={newMeta => onMetaChange(item, newMeta)}
-                      onRemove={() => onRemoveWidget(item.i)}
-                      onCopy={targetDashboardId =>
-                        onCopyWidget(item.i, targetDashboardId)
-                      }
-                    />
-                  ) : null}
-                </div>
-              ))}
-            </ResponsiveGridLayout>
+            {isMounted && (
+              <ReactGridLayout
+                width={containerWidth}
+                layout={currentLayout}
+                gridConfig={{
+                  cols: currentBreakpoint === 'desktop' ? 12 : 1,
+                  rowHeight: 100,
+                }}
+                dragConfig={{
+                  enabled: currentBreakpoint === 'desktop' && isEditing,
+                  cancel: `.${NON_DRAGGABLE_AREA_CLASS_NAME}`,
+                }}
+                resizeConfig={{
+                  enabled: currentBreakpoint === 'desktop' && isEditing,
+                }}
+                onLayoutChange={
+                  currentBreakpoint === 'desktop' ? onLayoutChange : undefined
+                }
+              >
+                {currentLayout.map(item => {
+                  const widget = widgetMap.get(item.i);
+
+                  if (!widget) {
+                    return null;
+                  }
+
+                  return (
+                    <div key={item.i}>
+                      {widget.type === 'net-worth-card' ? (
+                        <NetWorthCard
+                          widgetId={item.i}
+                          isEditing={isEditing}
+                          accounts={accounts}
+                          meta={widget.meta}
+                          onMetaChange={newMeta => onMetaChange(item, newMeta)}
+                          onRemove={() => onRemoveWidget(item.i)}
+                          onCopy={targetDashboardId =>
+                            onCopyWidget(item.i, targetDashboardId)
+                          }
+                        />
+                      ) : widget.type === 'crossover-card' &&
+                        crossoverReportEnabled ? (
+                        <CrossoverCard
+                          widgetId={item.i}
+                          isEditing={isEditing}
+                          accounts={accounts}
+                          meta={widget.meta}
+                          onMetaChange={newMeta => onMetaChange(item, newMeta)}
+                          onRemove={() => onRemoveWidget(item.i)}
+                          onCopy={targetDashboardId =>
+                            onCopyWidget(item.i, targetDashboardId)
+                          }
+                        />
+                      ) : widget.type === 'cash-flow-card' ? (
+                        <CashFlowCard
+                          widgetId={item.i}
+                          isEditing={isEditing}
+                          meta={widget.meta}
+                          onMetaChange={newMeta => onMetaChange(item, newMeta)}
+                          onRemove={() => onRemoveWidget(item.i)}
+                          onCopy={targetDashboardId =>
+                            onCopyWidget(item.i, targetDashboardId)
+                          }
+                        />
+                      ) : widget.type === 'spending-card' ? (
+                        <SpendingCard
+                          widgetId={item.i}
+                          isEditing={isEditing}
+                          meta={widget.meta}
+                          onMetaChange={newMeta => onMetaChange(item, newMeta)}
+                          onRemove={() => onRemoveWidget(item.i)}
+                          onCopy={targetDashboardId =>
+                            onCopyWidget(item.i, targetDashboardId)
+                          }
+                        />
+                      ) : widget.type === 'budget-analysis-card' &&
+                        budgetAnalysisReportEnabled ? (
+                        <BudgetAnalysisCard
+                          widgetId={item.i}
+                          isEditing={isEditing}
+                          meta={widget.meta}
+                          onMetaChange={newMeta => onMetaChange(item, newMeta)}
+                          onRemove={() => onRemoveWidget(item.i)}
+                          onCopy={targetDashboardId =>
+                            onCopyWidget(item.i, targetDashboardId)
+                          }
+                        />
+                      ) : isRegisteredWidget(widget.type) ? (
+                        renderRegisteredWidget(widget.type, {
+                          widgetId: item.i,
+                          isEditing,
+                          meta: widget.meta,
+                          onMetaChange: newMeta =>
+                            onMetaChange(
+                              item,
+                              newMeta as DashboardWidgetEntity['meta'],
+                            ),
+                          onRemove: () => onRemoveWidget(item.i),
+                          onCopy: targetDashboardId =>
+                            onCopyWidget(item.i, targetDashboardId),
+                        })
+                      ) : widget.type === 'markdown-card' ? (
+                        <MarkdownCard
+                          isEditing={isEditing}
+                          meta={widget.meta}
+                          onMetaChange={newMeta => onMetaChange(item, newMeta)}
+                          onRemove={() => onRemoveWidget(item.i)}
+                          onCopy={targetDashboardId =>
+                            onCopyWidget(item.i, targetDashboardId)
+                          }
+                        />
+                      ) : widget.type === 'custom-report' ? (
+                        <CustomReportListCards
+                          isEditing={isEditing}
+                          report={customReportMap.get(widget.meta.id)}
+                          onRemove={() => onRemoveWidget(item.i)}
+                          onCopy={targetDashboardId =>
+                            onCopyWidget(item.i, targetDashboardId)
+                          }
+                        />
+                      ) : widget.type === 'summary-card' ? (
+                        <SummaryCard
+                          widgetId={item.i}
+                          isEditing={isEditing}
+                          meta={widget.meta}
+                          onMetaChange={newMeta => onMetaChange(item, newMeta)}
+                          onRemove={() => onRemoveWidget(item.i)}
+                          onCopy={targetDashboardId =>
+                            onCopyWidget(item.i, targetDashboardId)
+                          }
+                        />
+                      ) : widget.type === 'calendar-card' ? (
+                        <CalendarCard
+                          widgetId={item.i}
+                          isEditing={isEditing}
+                          meta={widget.meta}
+                          firstDayOfWeekIdx={firstDayOfWeekIdx}
+                          onMetaChange={newMeta => onMetaChange(item, newMeta)}
+                          onRemove={() => onRemoveWidget(item.i)}
+                          onCopy={targetDashboardId =>
+                            onCopyWidget(item.i, targetDashboardId)
+                          }
+                        />
+                      ) : widget.type === 'formula-card' && formulaMode ? (
+                        <FormulaCard
+                          widgetId={item.i}
+                          isEditing={isEditing}
+                          meta={widget.meta}
+                          onMetaChange={newMeta => onMetaChange(item, newMeta)}
+                          onRemove={() => onRemoveWidget(item.i)}
+                          onCopy={targetDashboardId =>
+                            onCopyWidget(item.i, targetDashboardId)
+                          }
+                        />
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </ReactGridLayout>
+            )}
           </View>
         </div>
       )}

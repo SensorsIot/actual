@@ -22,7 +22,7 @@ import {
   type BudgetVsActualData,
 } from '@desktop-client/components/reports/spreadsheets/budget-vs-actual-spreadsheet';
 import { useReport } from '@desktop-client/components/reports/useReport';
-import { useWidgetCopyMenu } from '@desktop-client/components/reports/useWidgetCopyMenu';
+import { useDashboardWidgetCopyMenu } from '@desktop-client/components/reports/useDashboardWidgetCopyMenu';
 import { useCategories } from '@desktop-client/hooks/useCategories';
 import { useFormat } from '@desktop-client/hooks/useFormat';
 
@@ -45,13 +45,13 @@ export function BudgetVsActualCard({
 }: BudgetVsActualCardProps) {
   const { t } = useTranslation();
   const format = useFormat();
-  const categories = useCategories();
+  const { data: categories = { grouped: [], list: [] } } = useCategories();
 
   const [isCardHovered, setIsCardHovered] = useState(false);
   const [nameMenuOpen, setNameMenuOpen] = useState(false);
 
   const { menuItems: copyMenuItems, handleMenuSelect: handleCopyMenuSelect } =
-    useWidgetCopyMenu(onCopy);
+    useDashboardWidgetCopyMenu(onCopy);
 
   const [start, end] = useMemo(() => {
     const [calculatedStart, calculatedEnd] = calculateTimeRange(

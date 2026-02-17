@@ -10,15 +10,15 @@ import { isNonProductionEnvironment } from '../../shared/environment';
 import { dayFromDate } from '../../shared/months';
 import * as monthUtils from '../../shared/months';
 import { amountToInteger } from '../../shared/util';
-import {
-  type AccountEntity,
-  type CategoryEntity,
-  type GoCardlessToken,
-  type ImportTransactionEntity,
-  type SyncServerGoCardlessAccount,
-  type SyncServerPluggyAiAccount,
-  type SyncServerSimpleFinAccount,
-  type TransactionEntity,
+import type {
+  AccountEntity,
+  CategoryEntity,
+  GoCardlessToken,
+  ImportTransactionEntity,
+  SyncServerGoCardlessAccount,
+  SyncServerPluggyAiAccount,
+  SyncServerSimpleFinAccount,
+  TransactionEntity,
 } from '../../types/models';
 import { createApp } from '../app';
 import * as db from '../db';
@@ -39,6 +39,14 @@ import { undoable, withUndo } from '../undo';
 import * as link from './link';
 import { getStartingBalancePayee } from './payees';
 import * as bankSync from './sync';
+
+// Shared base type for link account parameters
+type LinkAccountBaseParams = {
+  upgradingId?: AccountEntity['id'];
+  offBudget?: boolean;
+  startingDate?: string;
+  startingBalance?: number;
+};
 
 export type AccountHandlers = {
   'account-update': typeof updateAccount;
@@ -97,8 +105,31 @@ async function updateAccount({
   return {};
 }
 
-async function getAccounts() {
-  return db.getAccounts();
+async function getAccounts(): Promise<AccountEntity[]> {
+  const dbAccounts = await db.getAccounts();
+  return dbAccounts.map(
+    dbAccount =>
+      ({
+        id: dbAccount.id,
+        name: dbAccount.name,
+        offbudget: dbAccount.offbudget,
+        closed: dbAccount.closed,
+        sort_order: dbAccount.sort_order,
+        last_reconciled: dbAccount.last_reconciled ?? null,
+        tombstone: dbAccount.tombstone,
+        account_id: dbAccount.account_id ?? null,
+        bank: dbAccount.bank ?? null,
+        bankName: dbAccount.bankName ?? null,
+        bankId: dbAccount.bankId ?? null,
+        mask: dbAccount.mask ?? null,
+        official_name: dbAccount.official_name ?? null,
+        balance_current: dbAccount.balance_current ?? null,
+        balance_available: dbAccount.balance_available ?? null,
+        balance_limit: dbAccount.balance_limit ?? null,
+        account_sync_source: dbAccount.account_sync_source ?? null,
+        last_sync: dbAccount.last_sync ?? null,
+      }) as AccountEntity,
+  );
 }
 
 async function getAccountBalance({
@@ -136,11 +167,11 @@ async function linkGoCardlessAccount({
   account,
   upgradingId,
   offBudget = false,
-}: {
+  startingDate,
+  startingBalance,
+}: LinkAccountBaseParams & {
   requisitionId: string;
   account: SyncServerGoCardlessAccount;
-  upgradingId?: AccountEntity['id'] | undefined;
-  offBudget?: boolean | undefined;
 }) {
   let id;
   const bank = await link.findOrCreateBank(account.institution, requisitionId);
@@ -186,6 +217,8 @@ async function linkGoCardlessAccount({
     id,
     account.account_id,
     bank.bank_id,
+    startingDate,
+    startingBalance,
   );
 
   connection.send('sync-event', {
@@ -200,10 +233,10 @@ async function linkSimpleFinAccount({
   externalAccount,
   upgradingId,
   offBudget = false,
-}: {
+  startingDate,
+  startingBalance,
+}: LinkAccountBaseParams & {
   externalAccount: SyncServerSimpleFinAccount;
-  upgradingId?: AccountEntity['id'] | undefined;
-  offBudget?: boolean | undefined;
 }) {
   let id;
 
@@ -256,6 +289,8 @@ async function linkSimpleFinAccount({
     id,
     externalAccount.account_id,
     bank.bank_id,
+    startingDate,
+    startingBalance,
   );
 
   await connection.send('sync-event', {
@@ -270,10 +305,10 @@ async function linkPluggyAiAccount({
   externalAccount,
   upgradingId,
   offBudget = false,
-}: {
+  startingDate,
+  startingBalance,
+}: LinkAccountBaseParams & {
   externalAccount: SyncServerPluggyAiAccount;
-  upgradingId?: AccountEntity['id'] | undefined;
-  offBudget?: boolean | undefined;
 }) {
   let id;
 
@@ -326,6 +361,8 @@ async function linkPluggyAiAccount({
     id,
     externalAccount.account_id,
     bank.bank_id,
+    startingDate,
+    startingBalance,
   );
 
   await connection.send('sync-event', {
@@ -861,24 +898,37 @@ type SyncError =
       internal?: string;
     };
 
+/**
+ * Type guard to check if an error is a BankSyncError.
+ * Handles both class instances and plain objects with the BankSyncError shape.
+ */
+function isBankSyncError(err: unknown): err is BankSyncError {
+  return (
+    err instanceof BankSyncError ||
+    (typeof err === 'object' &&
+      err !== null &&
+      'type' in err &&
+      err.type === 'BankSyncError')
+  );
+}
+
+/**
+ * Converts a sync error into a standardized SyncError response object.
+ */
 function handleSyncError(
   err: Error | PostError | BankSyncError,
   acct: db.DbAccount,
 ): SyncError {
-  // TODO: refactor bank sync logic to use BankSyncError properly
-  // oxlint-disable-next-line typescript/no-explicit-any
-  if (err instanceof BankSyncError || (err as any)?.type === 'BankSyncError') {
-    const error = err as BankSyncError;
-
+  if (isBankSyncError(err)) {
     const syncError = {
       type: 'SyncError',
       accountId: acct.id,
       message: 'Failed syncing account "' + acct.name + '."',
-      category: error.category,
-      code: error.code,
+      category: err.category,
+      code: err.code,
     };
 
-    if (error.category === 'RATE_LIMIT_EXCEEDED') {
+    if (err.category === 'RATE_LIMIT_EXCEEDED') {
       return {
         ...syncError,
         message: `Failed syncing account ${acct.name}. Rate limit exceeded. Please try again later.`,
@@ -1320,14 +1370,17 @@ async function importRevolutTransactions({
             // Determine if expense based on amount (negative = expense)
             const isExpense =
               typeof txn.amount === 'number' ? txn.amount < 0 : true;
-            const categoryId = await getCategoryForPayee(
-              txn.payee_name || txn.imported_payee,
-              payeeMapping,
-              isExpense,
-            );
-            if (categoryId) {
-              txn.category = categoryId;
-              result.categoriesApplied++;
+            const payeeName = txn.payee_name || txn.imported_payee;
+            if (payeeName) {
+              const categoryId = await getCategoryForPayee(
+                payeeName,
+                payeeMapping,
+                isExpense,
+              );
+              if (categoryId) {
+                txn.category = categoryId;
+                result.categoriesApplied++;
+              }
             }
           }
         }
@@ -1444,7 +1497,7 @@ async function importRevolutTransactions({
           result.transfersLinked++;
 
           logger.info(
-            `Linked exchange: ${otherSide.currency} -> CHF (${Math.abs(otherSide.txn.amount) / 100} CHF)`,
+            `Linked exchange: ${otherSide.currency} -> CHF (${Math.abs(otherSide.txn.amount ?? 0) / 100} CHF)`,
           );
         }
       }
@@ -1515,7 +1568,7 @@ async function importRevolutTransactions({
           logger.info(`Created transfer target account: ${targetAccountName}`);
         }
 
-        const counterAmount = -txn.amount;
+        const counterAmount = -(txn.amount ?? 0);
         const txnDate = txn.date || monthUtils.currentDay();
 
         // Get transfer payees for both directions
@@ -1849,14 +1902,17 @@ async function importMigrosTransactions({
           // Determine if expense based on amount (negative = expense)
           const isExpense =
             typeof txn.amount === 'number' ? txn.amount < 0 : true;
-          const categoryId = await getCategoryForPayee(
-            txn.payee_name || txn.imported_payee,
-            payeeMapping,
-            isExpense,
-          );
-          if (categoryId) {
-            txn.category = categoryId;
-            result.categoriesApplied++;
+          const payeeName = txn.payee_name || txn.imported_payee;
+          if (payeeName) {
+            const categoryId = await getCategoryForPayee(
+              payeeName,
+              payeeMapping,
+              isExpense,
+            );
+            if (categoryId) {
+              txn.category = categoryId;
+              result.categoriesApplied++;
+            }
           }
         }
       }
@@ -1948,7 +2004,7 @@ async function importMigrosTransactions({
 
         // Create counter-transaction in target account (Kasse)
         const counterId = uuidv4();
-        const counterAmount = -txn.amount; // Opposite sign
+        const counterAmount = -(txn.amount ?? 0); // Opposite sign
 
         await db.insertTransaction({
           id: counterId,
@@ -2055,14 +2111,17 @@ async function importKantonalbankTransactions({
         if (!txn.category) {
           const isExpense =
             typeof txn.amount === 'number' ? txn.amount < 0 : true;
-          const categoryId = await getCategoryForPayee(
-            txn.payee_name || txn.imported_payee,
-            payeeMapping,
-            isExpense,
-          );
-          if (categoryId) {
-            txn.category = categoryId;
-            result.categoriesApplied++;
+          const payeeName = txn.payee_name || txn.imported_payee;
+          if (payeeName) {
+            const categoryId = await getCategoryForPayee(
+              payeeName,
+              payeeMapping,
+              isExpense,
+            );
+            if (categoryId) {
+              txn.category = categoryId;
+              result.categoriesApplied++;
+            }
           }
         }
       }
@@ -2135,9 +2194,8 @@ const DEFAULT_IMPORT_SETTINGS: ImportSettings = {
  * Get import settings file path in budget directory.
  */
 function getImportSettingsFilePath(): string {
-  const budgetDir = prefs.getPrefs()?.id
-    ? fs.getBudgetDir(prefs.getPrefs().id)
-    : '.';
+  const prefsId = prefs.getPrefs()?.id;
+  const budgetDir = prefsId ? fs.getBudgetDir(prefsId) : '.';
   return fs.join(budgetDir, 'import_settings.json');
 }
 
@@ -2183,9 +2241,8 @@ async function saveImportSettings({
  * Stored in budget directory as JSON file (like Python's payee_category_mapping.json)
  */
 function getPayeeMappingFilePath(): string {
-  const budgetDir = prefs.getPrefs()?.id
-    ? fs.getBudgetDir(prefs.getPrefs().id)
-    : '.';
+  const prefsId = prefs.getPrefs()?.id;
+  const budgetDir = prefsId ? fs.getBudgetDir(prefsId) : '.';
   return fs.join(budgetDir, 'payee_category_mapping.json');
 }
 

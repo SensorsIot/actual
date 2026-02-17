@@ -7,8 +7,9 @@ import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
 import * as monthUtils from 'loot-core/shared/months';
-import { type SpendingWidget } from 'loot-core/types/models';
+import type { SpendingWidget } from 'loot-core/types/models';
 
+import { FinancialText } from '@desktop-client/components/FinancialText';
 import { PrivacyFilter } from '@desktop-client/components/PrivacyFilter';
 import { DateRange } from '@desktop-client/components/reports/DateRange';
 import { SpendingGraph } from '@desktop-client/components/reports/graphs/SpendingGraph';
@@ -17,8 +18,8 @@ import { ReportCard } from '@desktop-client/components/reports/ReportCard';
 import { ReportCardName } from '@desktop-client/components/reports/ReportCardName';
 import { calculateSpendingReportTimeRange } from '@desktop-client/components/reports/reportRanges';
 import { createSpendingSpreadsheet } from '@desktop-client/components/reports/spreadsheets/spending-spreadsheet';
+import { useDashboardWidgetCopyMenu } from '@desktop-client/components/reports/useDashboardWidgetCopyMenu';
 import { useReport } from '@desktop-client/components/reports/useReport';
-import { useWidgetCopyMenu } from '@desktop-client/components/reports/useWidgetCopyMenu';
 import { useFormat } from '@desktop-client/hooks/useFormat';
 
 type SpendingCardProps = {
@@ -45,7 +46,7 @@ export function SpendingCard({
   const [nameMenuOpen, setNameMenuOpen] = useState(false);
 
   const { menuItems: copyMenuItems, handleMenuSelect: handleCopyMenuSelect } =
-    useWidgetCopyMenu(onCopy);
+    useDashboardWidgetCopyMenu(onCopy);
 
   const spendingReportMode = meta?.mode ?? 'single-month';
 
@@ -138,17 +139,20 @@ export function SpendingCard({
                   ...styles.mediumText,
                   fontWeight: 500,
                   marginBottom: 5,
-                  color: !difference
-                    ? 'inherit'
-                    : difference <= 0
-                      ? theme.noticeTextLight
-                      : theme.errorText,
+                  color:
+                    difference === 0 || difference == null
+                      ? theme.reportsNumberNeutral
+                      : difference > 0
+                        ? theme.reportsNumberNegative
+                        : theme.reportsNumberPositive,
                 }}
               >
                 <PrivacyFilter activationFilters={[!isCardHovered]}>
-                  {data &&
-                    (difference && difference > 0 ? '+' : '') +
-                      format(difference || 0, 'financial')}
+                  <FinancialText>
+                    {data &&
+                      (difference && difference > 0 ? '+' : '') +
+                        format(difference || 0, 'financial')}
+                  </FinancialText>
                 </PrivacyFilter>
               </Block>
             </View>

@@ -1,4 +1,3 @@
-// @ts-strict-ignore
 import React, {
   createContext,
   useContext,
@@ -6,7 +5,6 @@ import React, {
   useLayoutEffect,
   useRef,
   useState,
-  type Context,
 } from 'react';
 import { useDrag, useDrop } from 'react-dnd';
 
@@ -75,7 +73,7 @@ export function useDraggable<T>({
 
 export type OnDropCallback = (
   id: string,
-  dropPos: DropPosition,
+  dropPos: DropPosition | null,
   targetId: string,
 ) => Promise<void> | void;
 
@@ -94,7 +92,7 @@ export function useDroppable<T extends { id: string }>({
   onDrop,
   onLongHover,
 }: UseDroppableArgs) {
-  const ref = useRef(null);
+  const ref = useRef<HTMLDivElement | null>(null);
   const onLongHoverRef = useRef(onLongHover);
   const [dropPos, setDropPos] = useState<DropPosition | null>(null);
 
@@ -108,10 +106,12 @@ export function useDroppable<T extends { id: string }>({
       onDrop(item.id, dropPos, id);
     },
     hover(_, monitor) {
+      if (!ref.current) return;
       const hoverBoundingRect = ref.current.getBoundingClientRect();
       const hoverMiddleY =
         (hoverBoundingRect.bottom - hoverBoundingRect.top) / 2;
       const clientOffset = monitor.getClientOffset();
+      if (!clientOffset) return;
       const hoverClientY = clientOffset.y - hoverBoundingRect.top;
       const pos: DropPosition = hoverClientY < hoverMiddleY ? 'top' : 'bottom';
 
@@ -147,8 +147,7 @@ export function useDroppable<T extends { id: string }>({
 }
 
 type ItemPosition = 'first' | 'last' | null;
-export const DropHighlightPosContext: Context<ItemPosition> =
-  createContext(null);
+export const DropHighlightPosContext = createContext<ItemPosition>(null);
 
 type DropHighlightProps = {
   pos: DropPosition;

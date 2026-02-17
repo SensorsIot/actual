@@ -91,7 +91,7 @@ export function YearlyBudgetPlannerTable({
 
   const commitEdit = useCallback(() => {
     if (editingCell) {
-      const amount = currencyToInteger(editValue);
+      const amount = currencyToInteger(editValue) ?? 0;
       if (editingCell.field === 'yearly') {
         onYearlyBudgetInputChange(editingCell.categoryId, amount);
       } else {

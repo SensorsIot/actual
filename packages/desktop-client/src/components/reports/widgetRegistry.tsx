@@ -1,6 +1,6 @@
 import React, { type ComponentType, type ReactElement } from 'react';
 
-import { type Widget } from 'loot-core/types/models';
+import { type DashboardWidgetEntity } from 'loot-core/types/models';
 
 /**
  * Widget Registry Pattern
@@ -29,7 +29,7 @@ export type WidgetCardProps = {
 };
 
 export type WidgetRegistration = {
-  type: Widget['type'];
+  type: DashboardWidgetEntity['type'];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   Component: ComponentType<any>;
   menuLabel: string;

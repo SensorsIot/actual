@@ -12,17 +12,15 @@ import { Text } from '@actual-app/components/text';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
-import { send } from 'loot-core/platform/client/fetch';
+import { send } from 'loot-core/platform/client/connection';
 import { amountToInteger } from 'loot-core/shared/util';
+import type { ImportTransactionEntity } from 'loot-core/types/models';
 
 import { TransactionList } from './components/TransactionList';
 import { useSwissBankImport } from './hooks/useSwissBankImport';
 import { type ImportTransaction } from './utils';
 
-import {
-  importKantonalbankTransactions,
-  importPreviewTransactions,
-} from '@desktop-client/accounts/accountsSlice';
+import { importKantonalbankTransactions } from '@desktop-client/accounts/accountsSlice';
 import {
   Modal,
   ModalCloseButton,
@@ -56,7 +54,7 @@ export function ImportKantonalbankModal({
 }: ImportKantonalbankModalProps) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const categories = useCategories();
+  const { data: categories = { grouped: [], list: [] } } = useCategories();
   const accounts = useAccounts();
   const dateFormat = useDateFormat() || 'MM/dd/yyyy';
 
@@ -210,17 +208,20 @@ export function ImportKantonalbankModal({
   // Run import preview to detect duplicates
   const runImportPreview = useCallback(
     async (transactionsToPreview: ImportTransaction[], accountId: string) => {
-      const previewTrx = await dispatch(
-        importPreviewTransactions({
-          accountId,
-          // @ts-expect-error - ImportTransaction extends TransactionEntity with preview fields
-          transactions: transactionsToPreview.map(trans => ({
-            ...trans,
-            date: trans.date,
-            amount: amountToInteger(trans.amount),
-          })),
-        }),
-      ).unwrap();
+      const result = await send('transactions-import', {
+        accountId,
+        transactions: transactionsToPreview.map(trans => ({
+          date: trans.date ?? '',
+          amount: amountToInteger(trans.amount),
+          account: accountId,
+          imported_payee: trans.imported_payee,
+          payee_name: trans.payee_name,
+          notes: trans.notes,
+          category: trans.category,
+        })),
+        isPreview: true,
+      });
+      const previewTrx = result.updatedPreview ?? [];
 
       // Build map of trx_id -> preview info
       const matchedUpdateMap: Record<
@@ -269,7 +270,7 @@ export function ImportKantonalbankModal({
       await fetchCategorySuggestions(transactionPreview);
       setLoadingState(null);
     },
-    [dispatch, fetchCategorySuggestions],
+    [fetchCategorySuggestions],
   );
 
   // Toggle transaction selection
@@ -303,7 +304,7 @@ export function ImportKantonalbankModal({
     setLoadingState('importing');
 
     // Build final transactions
-    const finalTransactions = [];
+    const finalTransactions: ImportTransactionEntity[] = [];
 
     for (const trans of transactions) {
       if (trans.isMatchedTransaction || !trans.selected) {
@@ -311,7 +312,7 @@ export function ImportKantonalbankModal({
       }
 
       // Apply user-selected category
-      let category_id: string | null = null;
+      let category_id: string | undefined;
       const catInfo = transactionCategories.get(trans.trx_id);
       if (catInfo?.selectedCategory) {
         const [groupName, catName] = catInfo.selectedCategory.split(':');
@@ -330,32 +331,19 @@ export function ImportKantonalbankModal({
       const editedNotes = transactionNotes.get(trans.trx_id);
       const finalNotes = editedNotes !== undefined ? editedNotes : trans.notes;
 
-      const {
-        inflow: _inflow,
-        outflow: _outflow,
-        inOut: _inOut,
-        existing: _existing,
-        ignored: _ignored,
-        selected: _selected,
-        selected_merge: _selected_merge,
-        trx_id: _trx_id,
-        ...finalTransaction
-      } = trans;
-
-      if (trans.ignored && trans.selected) {
-        (
-          finalTransaction as { forceAddTransaction?: boolean }
-        ).forceAddTransaction = true;
-      }
+      const forceAdd = trans.ignored && trans.selected;
 
       finalTransactions.push({
-        ...finalTransaction,
-        date: trans.date,
+        account: targetAccountId ?? '',
+        date: trans.date ?? '',
         amount: amountToInteger(trans.amount),
         cleared: true,
-        notes: finalNotes,
+        notes: finalNotes ?? undefined,
         category: category_id,
-      });
+        imported_payee: trans.imported_payee,
+        payee_name: trans.payee_name,
+        ...(forceAdd ? { forceAddTransaction: true } : {}),
+      } as ImportTransactionEntity);
     }
 
     // Collect payee mappings BEFORE closing
@@ -463,7 +451,7 @@ export function ImportKantonalbankModal({
                 showStatus
                 showCurrency={false}
                 isSwissBankImport
-                parseDateFormat={null}
+                parseDateFormat={undefined}
                 dateFormat={dateFormat}
                 fieldMappings={null}
                 splitMode={false}

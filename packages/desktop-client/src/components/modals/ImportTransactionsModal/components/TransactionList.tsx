@@ -146,7 +146,7 @@ export function TransactionList({
                   showParsed={showParsed}
                   parseDateFormat={parseDateFormat}
                   dateFormat={dateFormat as DateFormat}
-                  fieldMappings={fieldMappings}
+                  fieldMappings={fieldMappings!}
                   splitMode={splitMode}
                   inOutMode={inOutMode}
                   outValue={outValue}

@@ -6,7 +6,7 @@ import { styles } from '@actual-app/components/styles';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 
-import { send } from 'loot-core/platform/client/fetch';
+import { send } from 'loot-core/platform/client/connection';
 import * as monthUtils from 'loot-core/shared/months';
 import { q } from 'loot-core/shared/query';
 import { type TransactionEntity } from 'loot-core/types/models';
@@ -39,7 +39,7 @@ type TransactionsDrilldownModalProps = {
 // Helper component to display category name with group
 function CategoryDisplay({ id }: { id: string | null }) {
   const { t } = useTranslation();
-  const { list: categories, grouped } = useCategories();
+  const { data: categories = { grouped: [], list: [] } } = useCategories();
 
   if (!id) {
     return (
@@ -49,7 +49,7 @@ function CategoryDisplay({ id }: { id: string | null }) {
     );
   }
 
-  const category = categories.find(c => c.id === id);
+  const category = categories.list.find(c => c.id === id);
   if (!category) {
     return (
       <span style={{ color: theme.pageTextSubdued }}>
@@ -59,7 +59,7 @@ function CategoryDisplay({ id }: { id: string | null }) {
   }
 
   // Find the group for this category
-  const group = grouped.find(g => g.categories?.some(c => c.id === id));
+  const group = categories.grouped.find(g => g.categories?.some(c => c.id === id));
   if (group) {
     return (
       <span>
@@ -264,7 +264,7 @@ export function TransactionsDrilldownModal({
                           backgroundColor: theme.tableBorderHover,
                         }}
                       >
-                        <CategoryDisplay id={transaction.category} />
+                        <CategoryDisplay id={transaction.category ?? null} />
                       </View>
                     )}
                   </Cell>

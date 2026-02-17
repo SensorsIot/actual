@@ -13,19 +13,18 @@ import { SpaceBetween } from '@actual-app/components/space-between';
 import { Text } from '@actual-app/components/text';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
+import { useQueryClient } from '@tanstack/react-query';
 
-import { send } from 'loot-core/platform/client/fetch';
+import { send } from 'loot-core/platform/client/connection';
 import { amountToInteger } from 'loot-core/shared/util';
+import type { ImportTransactionEntity } from 'loot-core/types/models';
 
 import { TransactionList } from './components/TransactionList';
 import { useSwissBankImport } from './hooks/useSwissBankImport';
 import { type ImportTransaction } from './utils';
 
-import {
-  importPreviewTransactions,
-  importRevolutTransactions,
-} from '@desktop-client/accounts/accountsSlice';
-import { getCategories } from '@desktop-client/budget/budgetSlice';
+import { importRevolutTransactions } from '@desktop-client/accounts/accountsSlice';
+import { categoryQueries } from '@desktop-client/budget';
 import {
   Modal,
   ModalCloseButton,
@@ -62,7 +61,8 @@ type ImportRevolutModalProps = {
 export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const categories = useCategories();
+  const queryClient = useQueryClient();
+  const { data: categories = { grouped: [], list: [] } } = useCategories();
   const accounts = useAccounts();
   const dateFormat = useDateFormat() || 'MM/dd/yyyy';
 
@@ -231,17 +231,20 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
         );
 
         if (currencyAccount) {
-          const previewTrx = await dispatch(
-            importPreviewTransactions({
-              accountId: currencyAccount.id,
-              // @ts-expect-error - ImportTransaction extends TransactionEntity with preview fields
-              transactions: currencyTransactions.map(trans => ({
-                ...trans,
-                date: trans.date,
-                amount: amountToInteger(trans.amount),
-              })),
-            }),
-          ).unwrap();
+          const result = await send('transactions-import', {
+            accountId: currencyAccount.id,
+            transactions: currencyTransactions.map(trans => ({
+              date: trans.date ?? '',
+              amount: amountToInteger(trans.amount),
+              account: currencyAccount.id,
+              imported_payee: trans.imported_payee,
+              payee_name: trans.payee_name,
+              notes: trans.notes,
+              category: trans.category,
+            })),
+            isPreview: true,
+          });
+          const previewTrx = result.updatedPreview ?? [];
 
           // Merge into map
           for (const trx of previewTrx) {
@@ -271,7 +274,7 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
             tombstone: matchInfo.tombstone || false,
             // Preserve existing transaction's category for display
             category: existingTrans?.category || trans.category,
-          };
+          } as ImportTransaction;
         }
         return trans;
       });
@@ -295,7 +298,9 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
           createdInfo.createdCategories.length > 0)
       ) {
         // Reload categories to include the newly created ones
-        await dispatch(getCategories());
+        await queryClient.invalidateQueries({
+          queryKey: categoryQueries.lists(),
+        });
 
         // Show notification to user
         const messages: string[] = [];
@@ -327,7 +332,7 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
 
       setLoadingState(null);
     },
-    [accounts, dispatch, fetchCategorySuggestions, t],
+    [accounts, dispatch, fetchCategorySuggestions, queryClient, t],
   );
 
   // Toggle transaction selection
@@ -399,7 +404,12 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
     setLoadingState('importing');
 
     // Build final transactions
-    const finalTransactions = [];
+    type RevolutTransaction = ImportTransactionEntity & {
+      currency?: string;
+      transaction_type?: string;
+      transfer_account?: string;
+    };
+    const finalTransactions: RevolutTransaction[] = [];
 
     for (const trans of transactions) {
       if (trans.isMatchedTransaction || !trans.selected) {
@@ -407,7 +417,7 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
       }
 
       // Apply user-selected category
-      let category_id: string | null = null;
+      let category_id: string | undefined;
       const catInfo = transactionCategories.get(trans.trx_id);
       if (catInfo?.selectedCategory) {
         const [groupName, catName] = catInfo.selectedCategory.split(':');
@@ -426,32 +436,27 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
       const editedNotes = transactionNotes.get(trans.trx_id);
       const finalNotes = editedNotes !== undefined ? editedNotes : trans.notes;
 
-      const {
-        inflow: _inflow,
-        outflow: _outflow,
-        inOut: _inOut,
-        existing: _existing,
-        ignored: _ignored,
-        selected: _selected,
-        selected_merge: _selected_merge,
-        trx_id: _trx_id,
-        ...finalTransaction
-      } = trans;
-
-      if (trans.ignored && trans.selected) {
-        (
-          finalTransaction as { forceAddTransaction?: boolean }
-        ).forceAddTransaction = true;
-      }
+      const forceAdd = trans.ignored && trans.selected;
+      const currency = (trans as { currency?: string }).currency;
+      const transactionType = (trans as { transaction_type?: string })
+        .transaction_type;
+      const transferAccount = (trans as { transfer_account?: string })
+        .transfer_account;
 
       finalTransactions.push({
-        ...finalTransaction,
-        date: trans.date,
+        account: '',
+        date: trans.date ?? '',
         amount: amountToInteger(trans.amount),
         cleared: true,
-        notes: finalNotes,
+        notes: finalNotes ?? undefined,
         category: category_id,
-      });
+        imported_payee: trans.imported_payee,
+        payee_name: trans.payee_name,
+        currency,
+        transaction_type: transactionType,
+        transfer_account: transferAccount,
+        ...(forceAdd ? { forceAddTransaction: true } : {}),
+      } as RevolutTransaction);
     }
 
     // Import using Revolut handler
@@ -623,7 +628,7 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
                 showStatus
                 showCurrency
                 isSwissBankImport
-                parseDateFormat={null}
+                parseDateFormat={undefined}
                 dateFormat={dateFormat}
                 fieldMappings={null}
                 splitMode={false}

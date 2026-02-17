@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 
-import { send } from 'loot-core/platform/client/fetch';
+import { send } from 'loot-core/platform/client/connection';
 
 import { type ImportTransaction } from '@desktop-client/components/modals/ImportTransactionsModal/utils';
 
@@ -132,8 +132,11 @@ export function useSwissBankImport(): UseSwissBankImportResult {
 
       // Collect all proposed categories to ensure they exist
       const proposedCategories = matchResults
-        .filter((r: { proposedCategory: string | null }) => r.proposedCategory)
-        .map((r: { proposedCategory: string }) => r.proposedCategory);
+        .filter(
+          (r): r is typeof r & { proposedCategory: string } =>
+            r.proposedCategory !== null,
+        )
+        .map(r => r.proposedCategory);
 
       // Ensure all proposed categories exist (create if missing)
       let createdInfo: CreatedCategoriesInfo | null = null;

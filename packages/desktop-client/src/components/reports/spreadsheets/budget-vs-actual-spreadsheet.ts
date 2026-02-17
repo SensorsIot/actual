@@ -1,4 +1,4 @@
-import { send } from 'loot-core/platform/client/fetch';
+import { send } from 'loot-core/platform/client/connection';
 import * as monthUtils from 'loot-core/shared/months';
 import { q } from 'loot-core/shared/query';
 import {
@@ -197,7 +197,7 @@ export function createBudgetVsActualSpreadsheet({
         continue;
       }
 
-      const isIncomeGroup = group.is_income;
+      const isIncomeGroup = group.is_income ?? false;
 
       const groupCategories: BudgetVsActualCategoryData[] = [];
       let groupBudgeted = 0;

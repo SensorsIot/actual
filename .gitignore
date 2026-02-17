@@ -107,3 +107,6 @@ build/
 # Lage cache
 .lage/
 nul
+
+*storybook.log
+storybook-static

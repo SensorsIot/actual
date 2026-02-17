@@ -36,14 +36,14 @@ import { useAccounts } from '@desktop-client/hooks/useAccounts';
 import { useFormat } from '@desktop-client/hooks/useFormat';
 import { useNavigate } from '@desktop-client/hooks/useNavigate';
 import { useRuleConditionFilters } from '@desktop-client/hooks/useRuleConditionFilters';
-import { useWidget } from '@desktop-client/hooks/useWidget';
+import { useDashboardWidget } from '@desktop-client/hooks/useDashboardWidget';
 
 export function CurrentAssetValue() {
   const params = useParams();
-  const { data: widget, isLoading } = useWidget<CurrentAssetValueWidget>(
-    params.id ?? '',
-    'current-asset-value-card',
-  );
+  const { data: widget, isPending: isLoading } = useDashboardWidget<CurrentAssetValueWidget>({
+    id: params.id,
+    type: 'current-asset-value-card',
+  });
 
   if (isLoading) {
     return <LoadingIndicator />;
