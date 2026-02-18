@@ -1,5 +1,5 @@
 // @ts-strict-ignore
-import React, { Fragment, useMemo, useState } from 'react';
+import React, { Fragment, useCallback, useMemo, useState } from 'react';
 import type {
   ComponentProps,
   ComponentPropsWithoutRef,
@@ -23,11 +23,7 @@ import { css, cx } from '@emotion/css';
 import { getNormalisedString } from 'loot-core/shared/normalisation';
 import type { AccountEntity, PayeeEntity } from 'loot-core/types/models';
 
-import {
-  Autocomplete,
-  AutocompleteFooter,
-  defaultFilterSuggestion,
-} from './Autocomplete';
+import { Autocomplete, AutocompleteFooter } from './Autocomplete';
 import { ItemHeader } from './ItemHeader';
 
 import { useAccounts } from '@desktop-client/hooks/useAccounts';
@@ -294,12 +290,16 @@ function PayeeList({
   );
 }
 
-function customSort(obj: PayeeAutocompleteItem, value: string): number {
-  const name = getNormalisedString(obj.name);
+function customSort(
+  obj: PayeeAutocompleteItem,
+  normalizedValue: string,
+  cache: Map<string, string>,
+): number {
   if (obj.id === 'new') {
     return -2;
   }
-  if (name.includes(value)) {
+  const name = cache.get(obj.id) ?? getNormalisedString(obj.name);
+  if (name.includes(normalizedValue)) {
     return -1;
   }
   return 1;
@@ -415,39 +415,51 @@ export function PayeeAutocomplete({
 
   const [payeeFieldFocused, setPayeeFieldFocused] = useState(false);
 
-  const filterSuggestions = (
-    suggestions: PayeeAutocompleteItem[],
-    value: string,
-  ) => {
-    const normalizedValue = getNormalisedString(value);
-    const filtered = suggestions
-      .filter(suggestion => {
-        if (suggestion.id === 'new') {
-          return !value || value === '' || focusTransferPayees ? false : true;
-        }
-
-        return defaultFilterSuggestion(suggestion, value);
-      })
-      .sort(
-        (a, b) =>
-          customSort(a, normalizedValue) - customSort(b, normalizedValue),
-      )
-      // Only show the first 100 results, users can search to find more.
-      // If user want to view all payees, it can be done via the manage payees page.
-      .slice(0, 100);
-
-    if (filtered.length >= 2 && filtered[0].id === 'new') {
-      const firstFiltered = filtered[1];
-      if (
-        getNormalisedString(firstFiltered.name) === normalizedValue &&
-        !firstFiltered.transfer_acct
-      ) {
-        // Exact match found, remove the 'Create payee` option.
-        return filtered.slice(1);
+  // Pre-cache normalized payee names so we don't call getNormalisedString
+  // on every payee for every keystroke
+  const normalizedNameCache = useMemo(() => {
+    const cache = new Map<string, string>();
+    for (const item of payeeSuggestions) {
+      if (item.id) {
+        cache.set(item.id, getNormalisedString(item.name));
       }
     }
-    return filtered;
-  };
+    return cache;
+  }, [payeeSuggestions]);
+
+  const filterSuggestions = useCallback(
+    (suggestions: PayeeAutocompleteItem[], value: string) => {
+      const normalizedValue = getNormalisedString(value);
+      const filtered = suggestions
+        .filter(suggestion => {
+          if (suggestion.id === 'new') {
+            return !value || value === '' || focusTransferPayees ? false : true;
+          }
+          const name =
+            normalizedNameCache.get(suggestion.id) ??
+            getNormalisedString(suggestion.name);
+          return name.includes(normalizedValue);
+        })
+        .sort(
+          (a, b) =>
+            customSort(a, normalizedValue, normalizedNameCache) -
+            customSort(b, normalizedValue, normalizedNameCache),
+        )
+        .slice(0, 100);
+
+      if (filtered.length >= 2 && filtered[0].id === 'new') {
+        const firstFiltered = filtered[1];
+        const firstNormalized =
+          normalizedNameCache.get(firstFiltered.id) ??
+          getNormalisedString(firstFiltered.name);
+        if (firstNormalized === normalizedValue && !firstFiltered.transfer_acct) {
+          return filtered.slice(1);
+        }
+      }
+      return filtered;
+    },
+    [normalizedNameCache, focusTransferPayees],
+  );
 
   return (
     <Autocomplete
