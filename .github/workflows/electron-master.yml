@@ -61,8 +61,8 @@ jobs:
           flatpak run --command=flatpak-builder-lint org.flatpak.Builder appstream "$METAINFO_FILE"
       - name: Set up environment
         uses: ./.github/actions/setup
-      - name: Build Electron for Mac
-        if: ${{ startsWith(matrix.os, 'macos') }}
+      - name: Build Electron for Mac (signed)
+        if: ${{ startsWith(matrix.os, 'macos') && secrets.CSC_LINK != '' }}
         run: ./bin/package-electron
         env:
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -70,6 +70,11 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Build Electron for Mac (unsigned)
+        if: ${{ startsWith(matrix.os, 'macos') && secrets.CSC_LINK == '' }}
+        run: ./bin/package-electron
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - name: Build Electron
         if: ${{ ! startsWith(matrix.os, 'macos') }}
         run: ./bin/package-electron
