@@ -57,6 +57,18 @@ Yarn 4 monorepo with these key packages:
 - **E2E tests**: Playwright in `packages/desktop-client/e2e/`
 - **VRT**: `yarn vrt` or `yarn vrt:docker` for consistent environment
 
+## Fork & Branch Strategy
+
+This is a fork (`SensorsIot/actual`) of `actualbudget/actual` with custom enhancements.
+
+- **`master` branch**: Our fork's main branch. All custom changes live here. GitHub URLs (version check, electron-updater publish config) point to `SensorsIot/actual`.
+- **`feature/*` branches**: Used for PRs back to upstream (`actualbudget/actual`). These must point to `actualbudget/actual` in any GitHub owner/repo references, not `SensorsIot`.
+
+When creating a PR for upstream: branch off `master`, make changes generic (pointing to `actualbudget`), and target `actualbudget/actual:master`.
+
+### Current PR branches
+- `feature/electron-updater` — Adds electron-updater auto-update (targets upstream, uses `actualbudget/actual`)
+
 ## Detailed Guidelines
 
 For comprehensive development guidelines, code patterns, and troubleshooting, see:

@@ -46,6 +46,9 @@ type Actual = {
   stopSyncServer: () => Promise<void>;
   isSyncServerRunning: () => Promise<boolean>;
   startOAuthServer: () => Promise<string>;
+  checkForUpdates: () => Promise<unknown>;
+  downloadUpdate: () => Promise<unknown>;
+  onUpdateEvent: (handler: (type: string, data: unknown) => void) => void;
 };
 
 declare global {

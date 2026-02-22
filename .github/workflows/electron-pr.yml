@@ -120,6 +120,16 @@ jobs:
           if-no-files-found: ignore
           path: packages/desktop-electron/dist/Actual-mac-arm64.dmg
 
+      - name: Upload latest.yml (Windows)
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: latest-yml-${{ matrix.os }}
+          if-no-files-found: ignore
+          path: |
+            packages/desktop-electron/dist/latest.yml
+            packages/desktop-electron/dist/latest-mac.yml
+            packages/desktop-electron/dist/latest-linux.yml
+
       - name: Upload Windows Store Build
         if: ${{ startsWith(matrix.os, 'windows') }}
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0

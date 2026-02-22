@@ -22,6 +22,7 @@ import type {
   SaveDialogOptions,
   UtilityProcess,
 } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import { copy, exists, mkdir, remove } from 'fs-extra';
 import promiseRetry from 'promise-retry';
 
@@ -497,6 +498,55 @@ app.on('ready', async () => {
   });
 
   await createBackgroundProcess();
+
+  // Auto-update setup
+  if (!isDev) {
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = true;
+
+    const sendUpdateEvent = (channel: string, data?: unknown) => {
+      if (clientWin) {
+        clientWin.webContents.send(channel, data);
+      }
+    };
+
+    autoUpdater.on('update-available', info => {
+      sendUpdateEvent('update-available', {
+        version: info.version,
+        releaseNotes: info.releaseNotes,
+      });
+    });
+
+    autoUpdater.on('update-not-available', () => {
+      sendUpdateEvent('update-not-available');
+    });
+
+    autoUpdater.on('download-progress', progress => {
+      sendUpdateEvent('download-progress', { percent: progress.percent });
+    });
+
+    autoUpdater.on('update-downloaded', () => {
+      sendUpdateEvent('update-downloaded');
+    });
+
+    autoUpdater.on('error', error => {
+      sendUpdateEvent('update-error', error.message);
+    });
+
+    autoUpdater.checkForUpdates().catch(err => {
+      logMessage('info', `Auto-update check failed: ${err}`);
+    });
+
+    // Re-check every 4 hours
+    setInterval(
+      () => {
+        autoUpdater.checkForUpdates().catch(err => {
+          logMessage('info', `Auto-update check failed: ${err}`);
+        });
+      },
+      4 * 60 * 60 * 1000,
+    );
+  }
 });
 
 app.on('window-all-closed', () => {
@@ -628,6 +678,18 @@ ipcMain.on('set-theme', (_event, theme: string) => {
       `window.__actionsForMenu && window.__actionsForMenu.saveGlobalPrefs({ prefs: ${JSON.stringify(obj)} })`,
     );
   }
+});
+
+ipcMain.handle('check-for-updates', () => {
+  return autoUpdater.checkForUpdates();
+});
+
+ipcMain.handle('download-update', () => {
+  return autoUpdater.downloadUpdate();
+});
+
+ipcMain.handle('install-update', () => {
+  autoUpdater.quitAndInstall();
 });
 
 ipcMain.handle(

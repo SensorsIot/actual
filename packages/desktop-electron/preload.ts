@@ -74,11 +74,19 @@ contextBridge.exposeInMainWorld('Actual', {
     ipcRenderer.on(type, handler);
   },
 
-  // No auto-updates in the desktop app
-  isUpdateReadyForDownload: () => false,
+  isUpdateReadyForDownload: (() => {
+    let ready = false;
+    ipcRenderer.on('update-downloaded', () => {
+      ready = true;
+    });
+    return () => ready;
+  })(),
+
   waitForUpdateReadyForDownload: () =>
-    new Promise<void>(() => {
-      // This is used in browser environment; do nothing in electron
+    new Promise<void>(resolve => {
+      ipcRenderer.on('update-downloaded', () => {
+        resolve();
+      });
     }),
 
   getServerSocket: async () => {
@@ -105,6 +113,23 @@ contextBridge.exposeInMainWorld('Actual', {
   },
 
   applyAppUpdate: async () => {
-    throw new Error('applyAppUpdate not implemented in electron app');
+    await ipcRenderer.invoke('install-update');
+  },
+
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+
+  downloadUpdate: () => ipcRenderer.invoke('download-update'),
+
+  onUpdateEvent: (handler: (type: string, data: unknown) => void) => {
+    const events = [
+      'update-available',
+      'update-not-available',
+      'download-progress',
+      'update-downloaded',
+      'update-error',
+    ];
+    for (const event of events) {
+      ipcRenderer.on(event, (_e, data) => handler(event, data));
+    }
   },
 } satisfies typeof global.Actual);
