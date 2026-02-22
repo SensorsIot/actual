@@ -1,13 +1,8 @@
 name: Build Stable Docker Image
 
-# Stable Docker images are built for every new tag
+# Disabled for fork - only Electron Windows build is needed
 on:
-  push:
-    tags:
-      - 'v*.*.*'
-    paths-ignore:
-      - README.md
-      - LICENSE.txt
+  workflow_dispatch:
 
 env:
   IMAGES: |

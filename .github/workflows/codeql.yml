@@ -1,11 +1,8 @@
 name: CodeQL
 
+# Disabled for fork - only Electron Windows build is needed
 on:
-  push:
-    branches: [master]
-  pull_request:
-  schedule:
-    - cron: '23 11 * * 6'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

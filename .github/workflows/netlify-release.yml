@@ -7,10 +7,9 @@ defaults:
 env:
   CI: true
 
+# Disabled for fork - only Electron Windows build is needed
 on:
-  push:
-    tags:
-      - v**
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

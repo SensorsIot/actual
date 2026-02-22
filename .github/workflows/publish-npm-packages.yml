@@ -1,10 +1,8 @@
 name: Publish npm packages
 
-# # Npm packages are published for every new tag
+# Disabled for fork - only Electron Windows build is needed
 on:
-  push:
-    tags:
-      - 'v*.*.*'
+  workflow_dispatch:
 
 jobs:
   build-and-pack:

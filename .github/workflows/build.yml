@@ -7,13 +7,9 @@ defaults:
 env:
   CI: true
 
+# Disabled for fork - only Electron Windows build is needed
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - master
-  pull_request:
-  merge_group:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
