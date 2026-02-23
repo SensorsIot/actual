@@ -688,6 +688,13 @@ ipcMain.handle('download-update', () => {
   return autoUpdater.downloadUpdate();
 });
 
+ipcMain.handle('check-and-download-update', async () => {
+  autoUpdater.autoDownload = true;
+  const result = await autoUpdater.checkForUpdates();
+  autoUpdater.autoDownload = false;
+  return result;
+});
+
 ipcMain.handle('install-update', () => {
   // Delay so the IPC response can be sent before the app quits
   setTimeout(() => {
