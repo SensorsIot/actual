@@ -171,7 +171,7 @@ export function FinancesApp() {
               button: {
                 title: t('Open changelog'),
                 action: () => {
-                  window.open('https://actualbudget.org/docs/releases');
+                  window.open('https://github.com/SensorsIot/actual/releases');
                 },
               },
               onClose: () => {

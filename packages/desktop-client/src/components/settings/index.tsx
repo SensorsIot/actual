@@ -91,7 +91,7 @@ function About() {
         {notifyWhenUpdateIsAvailable && versionInfo?.isOutdated ? (
           <Link
             variant="external"
-            to="https://actualbudget.org/docs/releases"
+            to="https://github.com/SensorsIot/actual/releases"
             linkColor="purple"
           >
             <Trans>New version available: {versionInfo.latestVersion}</Trans>
@@ -106,7 +106,7 @@ function About() {
         <Text>
           <Link
             variant="external"
-            to="https://actualbudget.org/docs/releases"
+            to="https://github.com/SensorsIot/actual/releases"
             linkColor="purple"
           >
             <Trans>Release Notes</Trans>
