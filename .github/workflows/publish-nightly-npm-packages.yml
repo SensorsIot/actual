@@ -1,9 +1,7 @@
 name: Publish nightly npm packages
 
-# Nightly npm packages are built daily at midnight UTC
+# Disabled for fork - only Electron Windows build is needed
 on:
-  schedule:
-    - cron: '0 0 * * *'
   workflow_dispatch:
 
 jobs:
