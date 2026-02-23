@@ -689,7 +689,10 @@ ipcMain.handle('download-update', () => {
 });
 
 ipcMain.handle('install-update', () => {
-  autoUpdater.quitAndInstall();
+  // Delay so the IPC response can be sent before the app quits
+  setTimeout(() => {
+    autoUpdater.quitAndInstall(false, true);
+  }, 500);
 });
 
 ipcMain.handle(
