@@ -169,9 +169,17 @@ export function FinancesApp() {
               sticky: true,
               id: 'update-notification',
               button: {
-                title: t('Open changelog'),
-                action: () => {
-                  window.open('https://github.com/SensorsIot/actual/releases');
+                title: t('Download & Install'),
+                action: async () => {
+                  if (global.Actual?.downloadUpdate) {
+                    await global.Actual.downloadUpdate();
+                    await global.Actual.waitForUpdateReadyForDownload();
+                    await global.Actual.applyAppUpdate();
+                  } else {
+                    window.open(
+                      'https://github.com/SensorsIot/actual/releases',
+                    );
+                  }
                 },
               },
               onClose: () => {
