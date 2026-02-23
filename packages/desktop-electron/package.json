@@ -1,6 +1,6 @@
 {
   "name": "desktop-electron",
-  "version": "26.3.11",
+  "version": "26.3.12",
   "description": "A simple and powerful personal finance system",
   "author": "Actual",
   "main": "build/desktop-electron/index.js",
@@ -111,9 +111,8 @@
       "allowElevation": false
     },
     "publish": {
-      "provider": "github",
-      "owner": "SensorsIot",
-      "repo": "actual"
+      "provider": "generic",
+      "url": "https://github.com/SensorsIot/actual/releases/latest/download"
     },
     "npmRebuild": false
   },
