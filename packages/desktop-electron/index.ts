@@ -764,58 +764,33 @@ ipcMain.handle('install-update', async () => {
     `serverProcess=${!!serverProcess}, syncServerProcess=${!!syncServerProcess}, clientWin=${!!clientWin}`,
   );
 
-  // Wait for server processes to exit gracefully so all DB writes are
-  // flushed. This is critical to avoid database corruption.
-  const waitForExit = (name: string, proc: typeof serverProcess) =>
-    new Promise<void>(resolve => {
-      if (!proc) {
-        updateLog(`${name}: not running`);
-        return resolve();
-      }
-      const timeout = setTimeout(() => {
-        updateLog(`${name}: timeout waiting for exit, continuing`);
-        resolve();
-      }, 5000);
-      proc.once('exit', () => {
-        clearTimeout(timeout);
-        updateLog(`${name}: exited`);
-        resolve();
-      });
-      proc.kill();
-    });
+  // Prevent electron-updater's quit handler from spawning a second
+  // installer. Must be set before quitAndInstall triggers app.quit().
+  autoUpdater.autoInstallOnAppQuit = false;
 
-  await Promise.all([
-    waitForExit('serverProcess', serverProcess),
-    waitForExit('syncServerProcess', syncServerProcess),
-  ]);
+  // Null out server refs so before-quit handler won't try to kill them
+  // (quitAndInstall → app.quit() → before-quit fires synchronously).
+  // The NSIS installer's customInit macro will force-kill all Actual.exe
+  // processes including these servers via taskkill /F /T.
   serverProcess = null;
   syncServerProcess = null;
 
-  // Prevent electron-updater's quit handler from spawning the installer.
-  // MUST be set BEFORE destroying the window, because destroy() triggers
-  // window-all-closed → app.quit() → quit handler, and if this flag is
-  // still true at that point the quit handler spawns a first installer
-  // copy before quitAndInstall even runs.
-  autoUpdater.autoInstallOnAppQuit = false;
+  // Do NOT destroy the window here. Destroying it triggers
+  // window-all-closed → app.quit() which starts the quit sequence
+  // prematurely. Let quitAndInstall handle the quit.
 
-  if (clientWin) {
-    clientWin.destroy();
-    clientWin = null;
-  }
-
-  // Log electron-updater internal state for debugging the
-  // "two installer processes" issue.
   const updaterAny = autoUpdater as unknown as Record<string, unknown>;
   updateLog(
     `state before quitAndInstall: autoInstallOnAppQuit=${autoUpdater.autoInstallOnAppQuit}, ` +
-      `autoDownload=${autoUpdater.autoDownload}, ` +
       `quitAndInstallCalled=${updaterAny.quitAndInstallCalled}, ` +
       `quitHandlerAdded=${updaterAny.quitHandlerAdded}`,
   );
 
-  // Launch the NSIS installer and quit. The installer's customInit
-  // macro (resources/installer.nsh) runs taskkill /F /T /IM Actual.exe
-  // to force-kill any remaining Electron processes before proceeding.
+  // Launch the NSIS installer and quit. quitAndInstall spawns the
+  // installer as a detached process, then calls app.quit(). The
+  // installer's customInit macro (resources/installer.nsh) runs
+  // taskkill /F /T /IM Actual.exe to force-kill all Electron processes
+  // and sleeps before proceeding with the uninstall.
   updateLog('calling quitAndInstall(true, true)');
   autoUpdater.quitAndInstall(true, true);
 
