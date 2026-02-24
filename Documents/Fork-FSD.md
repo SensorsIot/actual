@@ -1,0 +1,439 @@
+# SensorsIot/actual Fork - Functional Specification Document
+
+## Overview
+
+This document describes all additions and changes in the **SensorsIot/actual** fork compared to the upstream **actualbudget/actual** repository. The fork adds Swiss bank import capabilities, budget reporting improvements, performance optimizations, and a fully automated desktop update system.
+
+**Repository**: https://github.com/SensorsIot/actual
+**Upstream**: https://github.com/actualbudget/actual
+**Platform**: Windows (Electron desktop app with NSIS installer)
+
+---
+
+## Table of Contents
+
+1. [Auto-Update System (electron-updater)](#1-auto-update-system)
+2. [Swiss Bank Import System](#2-swiss-bank-import-system)
+3. [Budget vs Actual Report Fixes](#3-budget-vs-actual-report-fixes)
+4. [Payee Autocomplete Optimization](#4-payee-autocomplete-optimization)
+5. [Duplicate Detection Fix](#5-duplicate-detection-fix)
+6. [CI/CD Configuration](#6-cicd-configuration)
+
+---
+
+## 1. Auto-Update System
+
+### Purpose
+
+Enable the Electron desktop app to detect, download, and install updates automatically from GitHub Releases without requiring users to manually download installers.
+
+### Components
+
+#### 1.1 Version Check (GitHub API)
+
+**File**: `packages/desktop-client/src/util/versions.ts`
+
+- Fetches latest release tag from `https://api.github.com/repos/SensorsIot/actual/releases/latest`
+- Compares semantic version of running app against latest release
+- Returns `isOutdated: true` when a newer version exists
+
+#### 1.2 electron-updater Integration
+
+**File**: `packages/desktop-electron/index.ts`
+
+**Dependency**: `electron-updater` (^6.3.9) added to runtime dependencies
+
+**Configuration**:
+- `autoDownload = false` (manual download via UI button)
+- `autoInstallOnAppQuit = false` (must be false at setup time — see 1.3 for rationale)
+- Provider: `generic` with URL `https://github.com/SensorsIot/actual/releases/latest/download`
+
+**Startup behavior**:
+- Calls `autoUpdater.checkForUpdatesAndNotify()` on app ready
+- If update found, automatically downloads and fires `update-downloaded` event
+- Re-checks every 4 hours via `setInterval`
+- All update events logged to `%APPDATA%/Actual/auto-update.log`
+
+**Event forwarding to renderer**:
+- `update-available` (version, releaseNotes)
+- `update-not-available`
+- `download-progress` (percent)
+- `update-downloaded`
+- `update-error` (message)
+
+**IPC handlers**:
+| Handler | Purpose |
+|---------|---------|
+| `check-for-updates` | Manual trigger for `autoUpdater.checkForUpdates()` |
+| `download-update` | Manual trigger for `autoUpdater.downloadUpdate()` |
+| `check-and-download-update` | Combined: temporarily sets `autoDownload=true`, calls `checkForUpdates()`, resets flag |
+| `install-update` | Graceful shutdown + install (see below) |
+
+#### 1.3 Install Update Flow
+
+**File**: `packages/desktop-electron/index.ts` (install-update handler)
+
+The install handler is intentionally simple:
+
+1. **Null out server process references** - Prevents `before-quit` handler from double-killing.
+2. **Call `autoUpdater.quitAndInstall(true, true)`** - Spawns NSIS installer as detached process, then calls `app.quit()`. Parameters: `isSilent=true`, `isForceRunAfter=true`.
+
+The NSIS installer's `customInit` macro (see 1.4) handles killing any remaining `Actual.exe` processes and removing the old uninstall registry key before proceeding. Electron spawns multiple processes (main, GPU, renderer, utility) all named `Actual.exe`, so taskkill with `/T` (process tree) flag is used.
+
+**Critical**: `autoInstallOnAppQuit` must be set to `false` at setup time (not in the install handler). If left `true`, calling `clientWin.destroy()` or any action that triggers `window-all-closed` → `app.quit()` will cause electron-updater's quit handler to spawn a second installer instance before our `install-update` handler runs `quitAndInstall`. This race condition was the root cause of the "failed to uninstall old application" error in earlier versions.
+
+All steps are logged to `%APPDATA%/Actual/auto-update.log` for diagnostics.
+
+#### 1.4 NSIS Installer Configuration
+
+**File**: `packages/desktop-electron/package.json` (build section)
+
+```json
+"nsis": {
+  "perMachine": false,
+  "allowElevation": false,
+  "include": "resources/installer.nsh"
+}
+```
+
+- **Per-user install**: Installs to `%LOCALAPPDATA%\Programs\` (no UAC prompt)
+- **No elevation**: Same approach as VS Code, Discord, Slack
+
+**File**: `packages/desktop-electron/resources/installer.nsh`
+
+Custom NSIS macro that runs before install/uninstall:
+```nsis
+!macro customInit
+  ; /F = force, /T = kill process tree (main + GPU + renderer + utility)
+  nsExec::ExecToLog 'taskkill /F /T /IM "Actual.exe"'
+  Sleep 3000
+
+  ; Delete the uninstall registry key so the installer skips running
+  ; the old uninstaller (which would fail with "failed to uninstall").
+  ; The key is a UUID v5 hash of appId, generated by electron-builder:
+  ;   UUID.v5("com.actualbudget.actual", ELECTRON_BUILDER_NS_UUID)
+  ;   = e6e1087f-f337-5317-baca-a0b5350655fc
+  ; Must use explicit HKCU (not SHCTX) because customInit runs before
+  ; initMultiUser sets SetShellVarContext, so SHCTX defaults to HKLM.
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\e6e1087f-f337-5317-baca-a0b5350655fc"
+!macroend
+```
+
+This macro performs two critical tasks:
+1. **Kill processes**: Force-kills any running `Actual.exe` processes and their child process trees.
+2. **Delete uninstall registry key**: Removes the NSIS uninstall entry so the installer does not attempt to run the old uninstaller. Instead, it simply overwrites files in the install directory, which is safe because all processes are already dead.
+
+**Important**: electron-builder does NOT use the `appId` string (`com.actualbudget.actual`) as the registry key. It generates a UUID v5 hash (`e6e1087f-f337-5317-baca-a0b5350655fc`) from the appId using `ELECTRON_BUILDER_NS_UUID`. The hash is deterministic and stable for a given appId. Source: `node_modules/app-builder-lib/out/targets/nsis/NsisTarget.js`.
+
+The file must be in `resources/` (not `build/`) because `build/` is gitignored.
+
+**Artifact naming**: Installer is named `Actual-Setup-x64.exe` (not `Actual-windows-x64.exe`) to avoid a known electron-builder naming collision bug where the installer exe and installed app exe names conflict.
+
+#### 1.5 Preload Bridge
+
+**File**: `packages/desktop-electron/preload.ts`
+
+Methods exposed on `window.Actual`:
+| Method | Description |
+|--------|-------------|
+| `isUpdateReadyForDownload()` | Returns boolean tracking `update-downloaded` event |
+| `waitForUpdateReadyForDownload()` | Returns Promise that resolves on `update-downloaded` |
+| `applyAppUpdate()` | Invokes `install-update` IPC |
+| `checkForUpdates()` | Invokes `check-for-updates` IPC |
+| `downloadUpdate()` | Invokes `download-update` IPC |
+| `checkAndDownloadUpdate()` | Invokes `check-and-download-update` IPC |
+| `onUpdateEvent(handler)` | Forwards update events from main process |
+
+#### 1.6 Type Definitions
+
+**File**: `packages/loot-core/typings/window.ts`
+
+Added to `Actual` interface:
+```typescript
+checkForUpdates: () => Promise<unknown>;
+downloadUpdate: () => Promise<unknown>;
+checkAndDownloadUpdate: () => Promise<void>;
+onUpdateEvent: (handler: (type: string, data: unknown) => void) => void;
+```
+
+#### 1.7 UI Integration
+
+**File**: `packages/desktop-client/src/components/FinancesApp.tsx`
+
+Two notification paths:
+
+1. **Automatic (electron-updater)**: On startup, `waitForUpdateReadyForDownload()` resolves when an update has been downloaded. Shows "Update now" button that calls `applyAppUpdate()`.
+
+2. **Version check (GitHub API)**: `getLatestAppVersion()` dispatch checks GitHub for newer version. If outdated and `notifyWhenUpdateIsAvailable` pref is true, shows notification with "Download & Install" button that:
+   - Calls `checkAndDownloadUpdate()` (combined check + download)
+   - Waits for `waitForUpdateReadyForDownload()` to resolve
+   - Calls `applyAppUpdate()` to install
+
+**File**: `packages/desktop-client/src/components/settings/index.tsx`
+
+- Release notes links point to `https://github.com/SensorsIot/actual/releases`
+
+**File**: `packages/desktop-client/src/components/UpdateNotification.tsx`
+
+- Release notes URL points to `https://github.com/SensorsIot/actual/releases`
+
+#### 1.8 Publish Configuration
+
+**File**: `packages/desktop-electron/package.json`
+
+```json
+"publish": {
+  "provider": "generic",
+  "url": "https://github.com/SensorsIot/actual/releases/latest/download"
+}
+```
+
+The `generic` provider is used instead of `github` provider to avoid 406 errors from GitHub's API. electron-updater fetches `latest.yml` from the URL, which GitHub redirects to the latest release's asset.
+
+**Build command**: `yarn build:dist && electron-builder --publish never`
+
+The `--publish never` flag prevents electron-builder from trying to publish directly to GitHub (CI handles release creation via `action-gh-release`).
+
+#### 1.9 CI/CD for Releases
+
+**File**: `.github/workflows/electron-master.yml`
+
+- Triggers on tag push (`v**`)
+- Builds Windows-only NSIS installer
+- Uploads `Actual-Setup-x64.exe` and `latest.yml` to GitHub Release
+- `latest.yml` is required by electron-updater to detect available versions
+
+**Important**: The GitHub Release must be published (not draft) and marked as "Latest" for the `latest.yml` to be accessible at the `/releases/latest/download/` URL.
+
+---
+
+## 2. Swiss Bank Import System
+
+### Purpose
+
+Import transaction data from Swiss banks (Kantonalbank, Migros Bank, Revolut) via their XLSX export files.
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `ImportKantonalbankModal.tsx` | Kantonalbank-specific import workflow |
+| `ImportMigrosModal.tsx` | Migros Bank import workflow |
+| `ImportRevolutModal.tsx` | Revolut import workflow |
+| `SwissTransaction.tsx` | Custom transaction display component |
+| `hooks/useSwissBankImport.ts` | Shared state management hook |
+
+All located under `packages/desktop-client/src/components/modals/ImportTransactionsModal/`
+
+### Features
+
+- **XLSX parsing**: Reads bank-specific XLSX formats with `swissBankFormat` option
+- **Bank balance display**: Extracts and shows CHF balance from file metadata
+- **Transaction type detection**: Identifies SWIFT transfers, ATM withdrawals, exchanges as "Transfer" type
+- **Editable notes**: Per-transaction notes field
+- **Category selection**: Dropdown per transaction with suggestions
+- **Payee mapping learning**: First import learns from existing transactions
+- **Duplicate detection**: Three states per transaction: `new`, `ignored`, `existing` (with merge option)
+- **Normalized matching**: Case-insensitive payee matching via `getNormalisedString`
+
+### Server API Calls
+
+| Endpoint | Purpose |
+|----------|---------|
+| `swiss-bank-get-import-settings` | Retrieve saved import configuration |
+| `swiss-bank-save-import-settings` | Persist import settings |
+| `swiss-bank-get-payee-mapping` | Get learned payee-to-category mappings |
+| `swiss-bank-match-payees` | Match transaction payees to categories |
+| `swiss-bank-ensure-categories` | Create proposed categories if needed |
+| `swiss-bank-add-payee-mappings` | Save new payee mappings |
+| `transactions-parse-file` | Parse XLSX with `swissBankFormat` option |
+
+---
+
+## 3. Budget vs Actual Report Fixes
+
+### Purpose
+
+Fix variance calculations, sign conventions, and color coding in the Budget vs Actual report.
+
+### Files Modified
+
+| File | Purpose |
+|------|---------|
+| `budget-vs-actual-spreadsheet.ts` | Data fetching and calculation logic |
+| `BudgetVsActual.tsx` | Report page component |
+| `BudgetVsActualTable.tsx` | Table rendering component |
+
+All under `packages/desktop-client/src/components/reports/`
+
+### Changes
+
+**Variance Calculation**:
+- Income groups: `variance = actual - budget` (positive = earned more = good)
+- Expense groups: `variance = budget + actual` (actual is negative, so positive result = under budget = good)
+- Total: `totalVariance = totalActual - totalBudgeted`
+
+**Display**:
+- All values shown as positive at display layer
+- Expense actuals negated for display consistency
+- Color coding: green = positive/favorable, red = negative/unfavorable
+- Percentage column removed
+- Income categories always shown (toggle removed)
+
+**Transactions Drilldown**:
+- Click any Actual amount to see underlying transactions
+- Category editing inline: reassign transactions, report auto-refreshes
+- Auto-closes when last transaction is moved
+
+See also: `docs/Actual-fsd.md` and `docs/Custom-Features.md` for detailed sign convention documentation.
+
+---
+
+## 4. Payee Autocomplete Optimization
+
+### Purpose
+
+Reduce CPU usage during payee search by caching normalized payee names.
+
+### File Modified
+
+`packages/desktop-client/src/components/autocomplete/PayeeAutocomplete.tsx`
+
+### Problem
+
+Every keystroke called `getNormalisedString()` on every payee in the list, causing O(n*k) normalizations where n = payees and k = keystrokes.
+
+### Solution
+
+```typescript
+const normalizedNameCache = useMemo(() => {
+  const cache = new Map<string, string>();
+  for (const item of payeeSuggestions) {
+    if (item.id) {
+      cache.set(item.id, getNormalisedString(item.name));
+    }
+  }
+  return cache;
+}, [payeeSuggestions]);
+```
+
+- Cache built once per `payeeSuggestions` change via `useMemo`
+- Filter lookups use cache: `normalizedNameCache.get(id)` with fallback to `getNormalisedString()`
+- Reduces normalizations from O(n*k) to O(n)
+
+---
+
+## 5. Duplicate Detection Fix
+
+### Purpose
+
+Fix broken duplicate detection during Swiss bank imports where all transactions were incorrectly marked as "new".
+
+### Files Modified
+
+- `ImportKantonalbankModal.tsx`
+- `ImportMigrosModal.tsx`
+- `ImportRevolutModal.tsx`
+
+### Problem
+
+The `transactions-import` preview call was not passing `trx_id` to the server, so the server couldn't match response transactions back to originals.
+
+### Solution
+
+Include `trx_id` in the transaction object sent to server:
+```typescript
+transactions: transactionsToPreview.map(trans => ({
+  date: trans.date ?? '',
+  amount: amountToInteger(trans.amount),
+  account: accountId,
+  imported_payee: trans.imported_payee,
+  payee_name: trans.payee_name,
+  notes: trans.notes,
+  category: trans.category,
+  trx_id: trans.trx_id,  // Critical for matching
+})),
+```
+
+Client-side matching uses `trx_id` to map preview results back to original transactions, correctly identifying duplicates, existing records, and ignored entries.
+
+---
+
+## 6. CI/CD Configuration
+
+### Active Workflows
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `electron-master.yml` | Tag push (`v**`) | Build Windows NSIS installer, create GitHub Release |
+| `electron-pr.yml` | Pull request | Build and test PR changes |
+
+### Disabled Workflows (manual dispatch only)
+
+The following workflows are restricted to `workflow_dispatch` to prevent accidental triggering:
+
+| Workflow | Original Purpose |
+|----------|-----------------|
+| `build.yml` | General build |
+| `codeql.yml` | Security scanning |
+| `docker-release.yml` | Docker image build |
+| `netlify-release.yml` | Netlify deployment |
+| `publish-npm-packages.yml` | NPM package releases |
+| `publish-nightly-npm-packages.yml` | Nightly NPM builds |
+| `publish-nightly-electron.yml` | Nightly desktop builds |
+
+### Build Configuration
+
+- **Windows only**: macOS and Linux builds removed from `electron-master.yml`
+- **NSIS installer**: Per-user install, no UAC elevation
+- **Artifacts**: `Actual-Setup-x64.exe` + `latest.yml` uploaded to GitHub Release
+- **No direct publishing**: `--publish never` flag; CI creates release via `action-gh-release`
+
+---
+
+## Files Summary
+
+### New Files (fork-only)
+
+| File | Purpose |
+|------|---------|
+| `packages/desktop-electron/resources/installer.nsh` | NSIS custom macro: kill processes + delete uninstall registry key |
+| `Documents/Fork-FSD.md` | This document |
+| `docs/Custom-Features.md` | Custom features guide |
+| `docs/Actual-fsd.md` | Budget vs Actual FSD |
+| `docs/Actual-Reporting-fsd.md` | Reporting FSD |
+| `docs/Actual-CSV-Importer-fsd.md` | CSV Importer FSD |
+| Swiss bank import files (5 files) | See Section 2 |
+
+### Modified Files (fork changes)
+
+| File | Changes |
+|------|---------|
+| `packages/desktop-electron/index.ts` | Auto-update logic, graceful shutdown |
+| `packages/desktop-electron/preload.ts` | Update bridge methods |
+| `packages/desktop-electron/package.json` | electron-updater dep, NSIS config, publish config |
+| `packages/desktop-client/src/util/versions.ts` | Point to fork's GitHub releases |
+| `packages/desktop-client/src/components/FinancesApp.tsx` | Download & Install button |
+| `packages/desktop-client/src/components/settings/index.tsx` | Fork release URLs |
+| `packages/desktop-client/src/components/UpdateNotification.tsx` | Fork release URL |
+| `packages/desktop-client/src/components/autocomplete/PayeeAutocomplete.tsx` | Normalized name caching |
+| `packages/desktop-client/src/components/reports/` (3 files) | Variance fixes |
+| `packages/loot-core/typings/window.ts` | Update method types |
+| `.github/workflows/` (multiple) | CI/CD for fork |
+| `CLAUDE.md` | Fork strategy documentation |
+
+---
+
+## Version History
+
+| Version | Key Change |
+|---------|-----------|
+| 26.3.0 | Initial electron-updater integration |
+| 26.3.1-26.3.29 | Iterative fixes: generic provider, check-before-download, silent install |
+| 26.3.30-26.3.35 | Graceful server shutdown, checkForUpdatesAndNotify on startup |
+| 26.3.36 | File-based auto-update logging (`auto-update.log`) |
+| 26.3.46 | Fix: move installer.nsh to resources/ (was gitignored in build/) |
+| 26.3.48 | Clean up: remove workarounds, rely on NSIS taskkill + quitAndInstall |
+| 26.3.60 | Set `autoInstallOnAppQuit = false` at setup time (fix quit handler race condition) |
+| 26.3.72 | Fix NSIS `DeleteRegKey`: use correct UUID v5 hash instead of raw appId string |
+| 26.3.73 | Auto-update fully working end-to-end |
