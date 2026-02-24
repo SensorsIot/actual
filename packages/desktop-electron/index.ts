@@ -22,8 +22,6 @@ import type {
   SaveDialogOptions,
   UtilityProcess,
 } from 'electron';
-import { spawn } from 'child_process';
-
 import { autoUpdater } from 'electron-updater';
 import { copy, exists, mkdir, remove } from 'fs-extra';
 import promiseRetry from 'promise-retry';
@@ -75,7 +73,6 @@ let serverProcess: UtilityProcess | null;
 let syncServerProcess: UtilityProcess | null;
 
 let oAuthServer: ReturnType<typeof createServer> | null;
-let downloadedInstallerPath: string | null = null;
 
 let queuedClientWinLogs: string[] = []; // logs that are queued up until the client window is ready
 
@@ -552,8 +549,7 @@ app.on('ready', async () => {
     });
 
     autoUpdater.on('update-downloaded', info => {
-      downloadedInstallerPath = info.downloadedFile;
-      updateLog(`update-downloaded: v${info.version}, path=${downloadedInstallerPath}`);
+      updateLog(`update-downloaded: v${info.version}`);
       sendUpdateEvent('update-downloaded');
     });
 
@@ -764,55 +760,13 @@ ipcMain.handle('install-update', async () => {
   };
 
   updateLog('install-update called');
-  updateLog(
-    `serverProcess=${!!serverProcess}, syncServerProcess=${!!syncServerProcess}, clientWin=${!!clientWin}`,
-  );
-  updateLog(`downloadedInstallerPath=${downloadedInstallerPath}`);
 
-  if (!downloadedInstallerPath) {
-    updateLog('ERROR: no downloaded installer path, aborting');
-    return;
-  }
+  // Null out server refs so before-quit handler won't double-kill.
+  serverProcess = null;
+  syncServerProcess = null;
 
-  // Strategy: exit the app FIRST, then launch the installer after a
-  // delay. This is the reverse of quitAndInstall (which spawns the
-  // installer then quits). By exiting first, all Electron processes
-  // (main, GPU, renderer, utility) terminate and release file locks
-  // before the installer tries to uninstall the old version.
-
-  const installerPath = downloadedInstallerPath;
-
-  // Spawn a delayed installer launch via cmd.exe. Uses ping for the
-  // delay because `timeout` requires a console/stdin and fails in
-  // detached processes with stdio: 'ignore'. ping -n 6 = 5 pings at
-  // 1s interval = 5 seconds. The & operator runs the installer after.
-  const updateLog2 = path.join(app.getPath('userData'), 'auto-update-install.log');
-  const delayedInstaller = spawn(
-    'cmd.exe',
-    [
-      '/c',
-      `ping -n 6 127.0.0.1 >nul & echo %date% %time% starting installer >> "${updateLog2}" & "${installerPath}" --updated /S --force-run & echo %date% %time% installer exited >> "${updateLog2}"`,
-    ],
-    {
-      detached: true,
-      stdio: 'ignore',
-      shell: false,
-      windowsHide: true,
-    },
-  );
-  delayedInstaller.unref();
-
-  updateLog(
-    `spawned delayed installer (pid=${delayedInstaller.pid}), exiting app in 500ms`,
-  );
-
-  // Give the log write a moment to flush, then exit immediately.
-  // app.exit() terminates all Electron processes without firing
-  // quit event handlers (no risk of quit handler interference).
-  setTimeout(() => {
-    updateLog('calling app.exit(0)');
-    app.exit(0);
-  }, 500);
+  updateLog('calling quitAndInstall(true, true)');
+  autoUpdater.quitAndInstall(true, true);
 });
 
 ipcMain.handle(
