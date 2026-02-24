@@ -811,7 +811,13 @@ ipcMain.handle('install-update', async () => {
   }
 
   // Exit immediately — server processes are already dead, DB is safe.
+  updateLog('calling app.exit(0)');
   app.exit(0);
+  // Fallback: if app.exit didn't work, force kill after 1s.
+  setTimeout(() => {
+    updateLog('app.exit(0) did not terminate, calling process.exit(0)');
+    process.exit(0);
+  }, 1000);
 });
 
 ipcMain.handle(
