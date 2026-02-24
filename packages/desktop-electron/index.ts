@@ -533,16 +533,19 @@ app.on('ready', async () => {
       sendUpdateEvent('update-error', error.message);
     });
 
-    autoUpdater.checkForUpdates().catch(err => {
-      logMessage('info', `Auto-update check failed: ${err}`);
-    });
+    // Check for updates on startup. If one is found, download it
+    // automatically so the 'update-downloaded' event fires and the
+    // renderer can show the "Update now" notification.
+    autoUpdater
+      .checkForUpdatesAndNotify()
+      .catch(err => logMessage('info', `Auto-update check failed: ${err}`));
 
     // Re-check every 4 hours
     setInterval(
       () => {
-        autoUpdater.checkForUpdates().catch(err => {
-          logMessage('info', `Auto-update check failed: ${err}`);
-        });
+        autoUpdater
+          .checkForUpdatesAndNotify()
+          .catch(err => logMessage('info', `Auto-update check failed: ${err}`));
       },
       4 * 60 * 60 * 1000,
     );
