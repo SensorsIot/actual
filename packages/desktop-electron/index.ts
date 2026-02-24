@@ -22,6 +22,8 @@ import type {
   SaveDialogOptions,
   UtilityProcess,
 } from 'electron';
+import { spawn } from 'child_process';
+
 import { autoUpdater } from 'electron-updater';
 import { copy, exists, mkdir, remove } from 'fs-extra';
 import promiseRetry from 'promise-retry';
@@ -548,8 +550,11 @@ app.on('ready', async () => {
       sendUpdateEvent('download-progress', { percent: progress.percent });
     });
 
+    let downloadedInstallerPath: string | null = null;
+
     autoUpdater.on('update-downloaded', info => {
-      updateLog(`update-downloaded: v${info.version}`);
+      downloadedInstallerPath = info.downloadedFile;
+      updateLog(`update-downloaded: v${info.version}, path=${downloadedInstallerPath}`);
       sendUpdateEvent('update-downloaded');
     });
 
@@ -763,23 +768,51 @@ ipcMain.handle('install-update', async () => {
   updateLog(
     `serverProcess=${!!serverProcess}, syncServerProcess=${!!syncServerProcess}, clientWin=${!!clientWin}`,
   );
+  updateLog(`downloadedInstallerPath=${downloadedInstallerPath}`);
 
-  // Null out server refs so before-quit handler won't try to kill them
-  // (quitAndInstall → app.quit() → before-quit fires synchronously).
-  // The NSIS installer's customInit macro will force-kill all Actual.exe
-  // processes including these servers via taskkill /F /T.
-  serverProcess = null;
-  syncServerProcess = null;
+  if (!downloadedInstallerPath) {
+    updateLog('ERROR: no downloaded installer path, aborting');
+    return;
+  }
 
-  // Launch the NSIS installer and quit. quitAndInstall spawns the
-  // installer as a detached process, then calls app.quit(). The
-  // installer's customInit macro (resources/installer.nsh) runs
-  // taskkill /F /T /IM Actual.exe to force-kill all Electron processes
-  // and sleeps before proceeding with the uninstall.
-  // NOTE: autoInstallOnAppQuit is set to false at setup time so the
-  // quit handler never races with this explicit install call.
-  updateLog('calling quitAndInstall(true, true)');
-  autoUpdater.quitAndInstall(true, true);
+  // Strategy: exit the app FIRST, then launch the installer after a
+  // delay. This is the reverse of quitAndInstall (which spawns the
+  // installer then quits). By exiting first, all Electron processes
+  // (main, GPU, renderer, utility) terminate and release file locks
+  // before the installer tries to uninstall the old version.
+
+  const installerPath = downloadedInstallerPath;
+
+  // Spawn a delayed installer launch via cmd.exe. The /c flag runs
+  // the command and exits. timeout /t 5 waits 5 seconds (enough for
+  // all Electron processes to fully die and release file locks).
+  // Then start launches the installer detached.
+  const delayedInstaller = spawn(
+    'cmd.exe',
+    [
+      '/c',
+      `timeout /t 5 /nobreak >nul & "${installerPath}" --updated /S --force-run`,
+    ],
+    {
+      detached: true,
+      stdio: 'ignore',
+      shell: false,
+      windowsHide: true,
+    },
+  );
+  delayedInstaller.unref();
+
+  updateLog(
+    `spawned delayed installer (pid=${delayedInstaller.pid}), exiting app in 500ms`,
+  );
+
+  // Give the log write a moment to flush, then exit immediately.
+  // app.exit() terminates all Electron processes without firing
+  // quit event handlers (no risk of quit handler interference).
+  setTimeout(() => {
+    updateLog('calling app.exit(0)');
+    app.exit(0);
+  }, 500);
 });
 
 ipcMain.handle(
