@@ -1,24 +1,46 @@
 # Actual Budget - Custom Fork
 
-A personal fork of [Actual Budget](https://github.com/actualbudget/actual) with custom Swiss bank importers, additional reports, and tracking budget fixes.
+A personal fork of [Actual Budget](https://github.com/actualbudget/actual) with automatic desktop updates, Swiss bank importers, budget reporting improvements, and performance optimizations.
 
-Based on Actual Budget v26.1.0. Uses **Tracking Budget** mode with `reflect_budgets`.
+**Platform**: Windows (Electron desktop app with NSIS installer)
+
+## Download
+
+Download the latest installer from [GitHub Releases](https://github.com/SensorsIot/actual/releases/latest). The app auto-updates when new versions are published.
 
 ## Custom Features
 
-### Swiss Bank CSV Importers
+### Auto-Update System
 
-- **Migros Bank**: Import CSV exports from Migros Bank with automatic category mapping
-- **Revolut**: Import Revolut CSV exports with currency exchange handling, duplicate detection, and cross-CSV deduplication
+The desktop app automatically detects, downloads, and installs updates from GitHub Releases:
+
+- Checks for updates on startup and every 4 hours
+- "Download & Install" button in the notification bar
+- Silent NSIS installer with automatic app restart
+- Per-user install (no UAC/admin required)
+- All update events logged to `%APPDATA%/Actual/auto-update.log`
+
+### Swiss Bank Importers
+
+Import transaction data from Swiss banks via their XLSX export files:
+
+- **Kantonalbank**: XLSX import with automatic payee-to-category mapping
+- **Migros Bank**: XLSX import with category suggestions and duplicate detection
+- **Revolut**: XLSX import with currency exchange handling and cross-file deduplication
+
+Features shared across all importers:
+- Bank balance display from file metadata
+- Editable notes and category selection per transaction
+- Payee mapping that learns from existing transactions
+- Three-state duplicate detection: new, ignored, existing (with merge)
 
 ### Budget vs Actual Report
 
-A dashboard widget and full report comparing budgeted amounts against actual spending:
+Fixed variance calculations, sign conventions, and color coding:
 
-- Monthly breakdown with Budget and Actual columns
-- Total columns with Variance and percentage
-- Collapsible category groups
-- Color-coded variance (green = under budget, red = over budget)
+- Income variance: `actual - budget` (positive = earned more = good)
+- Expense variance: `budget + actual` (positive = under budget = good)
+- Color-coded: green = favorable, red = unfavorable
 - Click any Actual amount to drill down into transactions
 - Inline category editing from the drilldown modal
 
@@ -30,38 +52,29 @@ A spreadsheet-style interface for planning budgets across the entire year:
 - Columns: Last Year (actual), Yearly Budget, Distribute, Jan-Dec, Total
 - Distribute button evenly spreads yearly budget across 12 months
 - Year navigation, save with unsaved changes warning
-- Net (Gain/Deficit) row
 
-### Current Asset Value Report
+### Payee Autocomplete Optimization
 
-Shows current balance of all on-budget accounts, grouped by account groups.
+Cached normalized payee names reduce CPU usage during search from O(n*k) to O(n).
 
-### Sidebar Changes
+### Duplicate Detection Fix
 
-The Budget section is expandable with sub-items:
+Fixed broken duplicate detection during Swiss bank imports by passing `trx_id` to the server in import preview calls.
 
-- **Budget**: Standard Actual Budget page
-- **Budget Planner**: Yearly Budget Planner
+## Documentation
 
-## Sign Conventions (Tracking Budget Mode)
+- [Fork FSD](Documents/Fork-FSD.md) - Full functional specification of all fork changes
+- [Custom Features Guide](docs/Custom-Features.md)
+- [Budget vs Actual FSD](docs/Actual-fsd.md)
 
-|                | Storage (reflect_budgets) | Transactions     |
-| -------------- | ------------------------- | ---------------- |
-| Income budget  | Positive (+2900)          | -                |
-| Expense budget | Positive (+550)           | -                |
-| Income actual  | -                         | Positive (+2900) |
-| Expense actual | -                         | Negative (-267)  |
+## Building
 
-**Display**: Budgets shown as positive. Actuals shown with natural signs.
+```bash
+yarn install
+yarn workspace desktop-electron run build
+```
 
-**Variance**:
-
-- Income: `actual - budget` (positive = earned more = good)
-- Expense: `budget + actual` (positive = under budget = good)
-
-## Installation
-
-See [upstream docs](https://actualbudget.org/docs/install/) for deployment options. This fork can be built the same way.
+The build produces `Actual-Setup-x64.exe` (NSIS installer) for Windows.
 
 ## Upstream
 
