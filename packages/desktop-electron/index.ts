@@ -700,40 +700,9 @@ ipcMain.handle('check-and-download-update', async () => {
 });
 
 ipcMain.handle('install-update', () => {
-  const logFile = path.join(process.env.ACTUAL_DATA_DIR!, 'auto-update.log');
-  const log = (msg: string) => {
-    const line = `${new Date().toISOString()} ${msg}\n`;
-    fs.appendFileSync(logFile, line);
-    logMessage('info', msg);
-  };
-
-  log('install-update called');
-  log(`serverProcess=${!!serverProcess}, syncServerProcess=${!!syncServerProcess}, clientWin=${!!clientWin}`);
-  log(`process.pid=${process.pid}`);
-
-  if (serverProcess) {
-    log('killing serverProcess');
-    serverProcess.kill();
-    serverProcess = null;
-  }
-  if (syncServerProcess) {
-    log('killing syncServerProcess');
-    syncServerProcess.kill();
-    syncServerProcess = null;
-  }
-
-  log('destroying window and calling quitAndInstall');
-
-  setImmediate(() => {
-    app.removeAllListeners('window-all-closed');
-    if (clientWin) {
-      clientWin.destroy();
-      clientWin = null;
-    }
-    log('window destroyed, calling quitAndInstall(true, true) now');
-    autoUpdater.quitAndInstall(true, true);
-    log('quitAndInstall returned (app should be exiting)');
-  });
+  // autoInstallOnAppQuit is already true — electron-updater will run
+  // the installer after the process exits. We just need to quit.
+  app.quit();
 });
 
 ipcMain.handle(
