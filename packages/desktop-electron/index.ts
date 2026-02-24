@@ -700,10 +700,29 @@ ipcMain.handle('check-and-download-update', async () => {
 });
 
 ipcMain.handle('install-update', () => {
-  // Delay so the IPC response can be sent before the app quits
+  logMessage('info', 'Auto-update: install-update called');
+  logMessage('info', `Auto-update: serverProcess=${!!serverProcess}, syncServerProcess=${!!syncServerProcess}, clientWin=${!!clientWin}`);
+  logMessage('info', `Auto-update: process.pid=${process.pid}`);
+
+  // Kill child processes explicitly
+  if (serverProcess) {
+    logMessage('info', 'Auto-update: killing serverProcess');
+    serverProcess.kill();
+    serverProcess = null;
+  }
+  if (syncServerProcess) {
+    logMessage('info', 'Auto-update: killing syncServerProcess');
+    syncServerProcess.kill();
+    syncServerProcess = null;
+  }
+
+  // Log before quit
+  logMessage('info', 'Auto-update: calling quitAndInstall in 1s');
+
   setTimeout(() => {
+    logMessage('info', 'Auto-update: now calling quitAndInstall(true, true)');
     autoUpdater.quitAndInstall(true, true);
-  }, 500);
+  }, 1000);
 });
 
 ipcMain.handle(
