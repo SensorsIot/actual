@@ -3,11 +3,13 @@
   ; Electron spawns multiple Actual.exe processes (main, GPU, renderer,
   ; utility). /F = force, /T = kill process tree, /IM = image name.
   nsExec::ExecToLog 'taskkill /F /T /IM "Actual.exe"'
-  ; Wait for processes to fully terminate and Windows to release all
-  ; file locks (native modules like better-sqlite3 can hold locks
-  ; briefly after process exit).
-  Sleep 5000
-  ; Second attempt in case any process respawned or was slow to die.
-  nsExec::ExecToLog 'taskkill /F /T /IM "Actual.exe"'
-  Sleep 2000
+  Sleep 3000
+
+  ; Remove the old uninstall registry key so the NSIS installer does NOT
+  ; try to run the old uninstaller (which fails with "failed to uninstall
+  ; old application"). Instead the installer simply overwrites files in
+  ; the install directory, which is safe because we already killed all
+  ; processes above.
+  DeleteRegKey SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.actualbudget.actual"
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.actualbudget.actual"
 !macroend
