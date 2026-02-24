@@ -501,8 +501,18 @@ app.on('ready', async () => {
 
   // Auto-update setup
   if (!isDev) {
+    const updateLogFile = path.join(app.getPath('userData'), 'auto-update.log');
+    const updateLog = (msg: string) => {
+      const line = `${new Date().toISOString()} ${msg}\n`;
+      fs.appendFileSync(updateLogFile, line);
+      logMessage('info', `[auto-update] ${msg}`);
+    };
+
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
+
+    updateLog(`app version: ${app.getVersion()}`);
+    updateLog(`update config: ${JSON.stringify(autoUpdater.updateConfigPath)}`);
 
     const sendUpdateEvent = (channel: string, data?: unknown) => {
       if (clientWin) {
@@ -511,41 +521,53 @@ app.on('ready', async () => {
     };
 
     autoUpdater.on('update-available', info => {
+      updateLog(`update-available: v${info.version}`);
       sendUpdateEvent('update-available', {
         version: info.version,
         releaseNotes: info.releaseNotes,
       });
     });
 
-    autoUpdater.on('update-not-available', () => {
+    autoUpdater.on('update-not-available', info => {
+      updateLog(`update-not-available: current=${app.getVersion()}, latest=${info?.version}`);
       sendUpdateEvent('update-not-available');
     });
 
     autoUpdater.on('download-progress', progress => {
+      updateLog(`download-progress: ${progress.percent.toFixed(1)}%`);
       sendUpdateEvent('download-progress', { percent: progress.percent });
     });
 
-    autoUpdater.on('update-downloaded', () => {
+    autoUpdater.on('update-downloaded', info => {
+      updateLog(`update-downloaded: v${info.version}`);
       sendUpdateEvent('update-downloaded');
     });
 
     autoUpdater.on('error', error => {
+      updateLog(`error: ${error.message}`);
       sendUpdateEvent('update-error', error.message);
     });
 
     // Check for updates on startup. If one is found, download it
     // automatically so the 'update-downloaded' event fires and the
     // renderer can show the "Update now" notification.
+    updateLog('calling checkForUpdatesAndNotify()');
     autoUpdater
       .checkForUpdatesAndNotify()
-      .catch(err => logMessage('info', `Auto-update check failed: ${err}`));
+      .then(result => {
+        updateLog(`checkForUpdatesAndNotify result: ${JSON.stringify(result?.updateInfo?.version ?? 'null')}`);
+      })
+      .catch(err => {
+        updateLog(`checkForUpdatesAndNotify failed: ${err}`);
+      });
 
     // Re-check every 4 hours
     setInterval(
       () => {
+        updateLog('periodic check: calling checkForUpdatesAndNotify()');
         autoUpdater
           .checkForUpdatesAndNotify()
-          .catch(err => logMessage('info', `Auto-update check failed: ${err}`));
+          .catch(err => updateLog(`periodic check failed: ${err}`));
       },
       4 * 60 * 60 * 1000,
     );
