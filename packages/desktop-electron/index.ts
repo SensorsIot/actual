@@ -725,9 +725,14 @@ ipcMain.handle('check-and-download-update', async () => {
 });
 
 ipcMain.handle('install-update', async () => {
-  logMessage('info', 'install-update called');
-  logMessage(
-    'info',
+  const updateLogFile = path.join(app.getPath('userData'), 'auto-update.log');
+  const updateLog = (msg: string) => {
+    const line = `${new Date().toISOString()} ${msg}\n`;
+    fs.appendFileSync(updateLogFile, line);
+  };
+
+  updateLog('install-update called');
+  updateLog(
     `serverProcess=${!!serverProcess}, syncServerProcess=${!!syncServerProcess}, clientWin=${!!clientWin}`,
   );
 
@@ -736,16 +741,16 @@ ipcMain.handle('install-update', async () => {
   const waitForExit = (name: string, proc: typeof serverProcess) =>
     new Promise<void>(resolve => {
       if (!proc) {
-        logMessage('info', `${name}: not running`);
+        updateLog(`${name}: not running`);
         return resolve();
       }
       const timeout = setTimeout(() => {
-        logMessage('info', `${name}: timeout waiting for exit, continuing`);
+        updateLog(`${name}: timeout waiting for exit, continuing`);
         resolve();
       }, 5000);
       proc.once('exit', () => {
         clearTimeout(timeout);
-        logMessage('info', `${name}: exited`);
+        updateLog(`${name}: exited`);
         resolve();
       });
       proc.kill();
@@ -758,25 +763,49 @@ ipcMain.handle('install-update', async () => {
   serverProcess = null;
   syncServerProcess = null;
 
-  // Step 2: Destroy the renderer window so the main process has no
-  // visible windows and is ready to quit.
+  // Step 2: Destroy the renderer window.
   if (clientWin) {
     clientWin.destroy();
     clientWin = null;
   }
-  logMessage('info', 'window destroyed, calling quitAndInstall(true, true)');
+  updateLog('window destroyed');
 
-  // Step 3: Launch the installer and quit. quitAndInstall spawns the
-  // NSIS installer as a detached process, then calls app.quit().
-  autoUpdater.quitAndInstall(true, true);
+  // Step 3: Find the downloaded installer and launch it manually
+  // with a delay, then exit the app. This ensures the Electron
+  // process is fully dead before the NSIS installer tries to
+  // uninstall the old version.
+  const { spawn } = await import('child_process');
+  const cacheDir = path.join(
+    app.getPath('home'),
+    'AppData',
+    'Local',
+    'desktop-electron-updater',
+    'pending',
+  );
+  const installerPath = path.join(cacheDir, 'Actual-Setup-x64.exe');
 
-  // Step 4: Fallback — if quitAndInstall didn't kill us within 3s,
-  // force exit. This is safe because all server processes (and their
-  // DB connections) are already confirmed dead above.
-  setTimeout(() => {
-    logMessage('info', 'quitAndInstall did not exit, forcing app.exit(0)');
-    app.exit(0);
-  }, 3000);
+  if (fs.existsSync(installerPath)) {
+    updateLog(`spawning installer: ${installerPath}`);
+    // Use cmd /c with timeout to delay installer start by 3 seconds,
+    // giving the app time to fully exit.
+    const child = spawn(
+      'cmd.exe',
+      ['/c', 'timeout', '/t', '3', '/nobreak', '>', 'NUL', '&&', installerPath, '/S'],
+      {
+        detached: true,
+        stdio: 'ignore',
+        shell: false,
+      },
+    );
+    child.unref();
+    updateLog('installer spawned with 3s delay, exiting app');
+  } else {
+    updateLog(`installer not found at ${installerPath}, falling back to quitAndInstall`);
+    autoUpdater.quitAndInstall(true, true);
+  }
+
+  // Exit immediately — server processes are already dead, DB is safe.
+  app.exit(0);
 });
 
 ipcMain.handle(
