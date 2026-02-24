@@ -763,14 +763,19 @@ ipcMain.handle('install-update', async () => {
   serverProcess = null;
   syncServerProcess = null;
 
-  // Step 2: Destroy the renderer window.
+  // Step 2: Prevent electron-updater from also launching the installer
+  // on quit (it copies installer to installer.exe and runs it on exit).
+  // We handle the installer launch ourselves below.
+  autoUpdater.autoInstallOnAppQuit = false;
+
+  // Step 3: Destroy the renderer window.
   if (clientWin) {
     clientWin.destroy();
     clientWin = null;
   }
   updateLog('window destroyed');
 
-  // Step 3: Find the downloaded installer and launch it manually
+  // Step 4: Find the downloaded installer and launch it manually
   // with a delay, then exit the app. This ensures the Electron
   // process is fully dead before the NSIS installer tries to
   // uninstall the old version.
