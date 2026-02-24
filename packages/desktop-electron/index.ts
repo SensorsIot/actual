@@ -700,9 +700,22 @@ ipcMain.handle('check-and-download-update', async () => {
 });
 
 ipcMain.handle('install-update', () => {
-  // autoInstallOnAppQuit is already true — electron-updater will run
-  // the installer after the process exits. We just need to quit.
-  app.quit();
+  // Kill utility processes first, then force quit.
+  // app.exit() kills the main process and all children immediately,
+  // unlike app.quit() which waits for graceful shutdown.
+  // autoInstallOnAppQuit=true makes electron-updater launch the
+  // installer on the 'quit' event before the process dies.
+  if (serverProcess) {
+    serverProcess.kill();
+    serverProcess = null;
+  }
+  if (syncServerProcess) {
+    syncServerProcess.kill();
+    syncServerProcess = null;
+  }
+  autoUpdater.quitAndInstall(true, true);
+  // Force exit if quitAndInstall didn't kill us
+  setTimeout(() => app.exit(0), 1000);
 });
 
 ipcMain.handle(
