@@ -1,6 +1,6 @@
 {
   "name": "desktop-electron",
-  "version": "26.3.33",
+  "version": "26.3.34",
   "description": "A simple and powerful personal finance system",
   "author": "Actual",
   "main": "build/desktop-electron/index.js",
@@ -104,7 +104,7 @@
         }
       ],
       "icon": "icons/icon.png",
-      "artifactName": "${productName}-windows-${arch}.${ext}"
+      "artifactName": "${productName}-Setup-${arch}.${ext}"
     },
     "nsis": {
       "perMachine": false,
