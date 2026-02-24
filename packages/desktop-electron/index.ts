@@ -717,12 +717,17 @@ ipcMain.handle('install-update', () => {
   }
 
   // Log before quit
-  logMessage('info', 'Auto-update: calling quitAndInstall in 1s');
+  logMessage('info', 'Auto-update: force exiting app, then installing');
 
-  setTimeout(() => {
-    logMessage('info', 'Auto-update: now calling quitAndInstall(true, true)');
+  // Force exit the app process so NSIS doesn't find Actual.exe running
+  setImmediate(() => {
+    app.removeAllListeners('window-all-closed');
+    if (clientWin) {
+      clientWin.destroy();
+      clientWin = null;
+    }
     autoUpdater.quitAndInstall(true, true);
-  }, 1000);
+  });
 });
 
 ipcMain.handle(
