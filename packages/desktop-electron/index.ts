@@ -803,7 +803,7 @@ ipcMain.handle('install-update', async () => {
 
   // Log electron-updater internal state for debugging the
   // "two installer processes" issue.
-  const updaterAny = autoUpdater as Record<string, unknown>;
+  const updaterAny = autoUpdater as unknown as Record<string, unknown>;
   updateLog(
     `state before quitAndInstall: autoInstallOnAppQuit=${autoUpdater.autoInstallOnAppQuit}, ` +
       `autoDownload=${autoUpdater.autoDownload}, ` +
