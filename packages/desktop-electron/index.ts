@@ -508,6 +508,16 @@ app.on('ready', async () => {
       logMessage('info', `[auto-update] ${msg}`);
     };
 
+    // Redirect electron-updater's internal logger to our log file so we
+    // can see every message it emits (install decisions, quit-handler
+    // logic, elevation attempts, error retries, etc.).
+    autoUpdater.logger = {
+      info: (msg: unknown) => updateLog(`[eu-info] ${msg}`),
+      warn: (msg: unknown) => updateLog(`[eu-warn] ${msg}`),
+      error: (msg: unknown) => updateLog(`[eu-error] ${msg}`),
+      debug: (msg: unknown) => updateLog(`[eu-debug] ${msg}`),
+    };
+
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
 
@@ -575,6 +585,11 @@ app.on('ready', async () => {
 });
 
 app.on('window-all-closed', () => {
+  const updateLogFile = path.join(app.getPath('userData'), 'auto-update.log');
+  fs.appendFileSync(
+    updateLogFile,
+    `${new Date().toISOString()} window-all-closed event fired\n`,
+  );
   // On macOS, closing all windows shouldn't exit the process
   if (process.platform !== 'darwin') {
     app.quit();
@@ -582,6 +597,11 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  const updateLogFile = path.join(app.getPath('userData'), 'auto-update.log');
+  fs.appendFileSync(
+    updateLogFile,
+    `${new Date().toISOString()} before-quit event fired\n`,
+  );
   if (serverProcess) {
     serverProcess.kill();
     serverProcess = null;
@@ -590,6 +610,14 @@ app.on('before-quit', () => {
     syncServerProcess.kill();
     syncServerProcess = null;
   }
+});
+
+app.on('will-quit', () => {
+  const updateLogFile = path.join(app.getPath('userData'), 'auto-update.log');
+  fs.appendFileSync(
+    updateLogFile,
+    `${new Date().toISOString()} will-quit event fired\n`,
+  );
 });
 
 app.on('activate', () => {
@@ -773,11 +801,25 @@ ipcMain.handle('install-update', async () => {
   // autoInstallOnAppQuit would spawn another from installer.exe.
   autoUpdater.autoInstallOnAppQuit = false;
 
+  // Log electron-updater internal state for debugging the
+  // "two installer processes" issue.
+  const updaterAny = autoUpdater as Record<string, unknown>;
+  updateLog(
+    `state before quitAndInstall: autoInstallOnAppQuit=${autoUpdater.autoInstallOnAppQuit}, ` +
+      `autoDownload=${autoUpdater.autoDownload}, ` +
+      `quitAndInstallCalled=${updaterAny.quitAndInstallCalled}, ` +
+      `quitHandlerAdded=${updaterAny.quitHandlerAdded}`,
+  );
+
   // Launch the NSIS installer and quit. The installer's customInit
   // macro (resources/installer.nsh) runs taskkill /F /T /IM Actual.exe
   // to force-kill any remaining Electron processes before proceeding.
   updateLog('calling quitAndInstall(true, true)');
   autoUpdater.quitAndInstall(true, true);
+
+  updateLog(
+    `state after quitAndInstall: quitAndInstallCalled=${updaterAny.quitAndInstallCalled}`,
+  );
 });
 
 ipcMain.handle(
