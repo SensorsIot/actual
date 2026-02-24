@@ -69,6 +69,15 @@ When creating a PR for upstream: branch off `master`, make changes generic (poin
 ### Current PR branches
 - `feature/electron-updater` — Adds electron-updater auto-update (targets upstream, uses `actualbudget/actual`)
 
+## Auto-Update Logging
+
+Auto-update logs MUST always be written to a file, not just the dev console. Users cannot access dev console logs in production builds.
+
+- **Log file**: `%APPDATA%/Actual/auto-update.log` (via `app.getPath('userData')`)
+- **Format**: `fs.appendFileSync()` with ISO timestamp prefix
+- **What to log**: app version, update config, check results, all update events (available, not-available, progress, downloaded, error), install steps
+- **Never remove file-based logging** when refactoring auto-update code
+
 ## Detailed Guidelines
 
 For comprehensive development guidelines, code patterns, and troubleshooting, see:
