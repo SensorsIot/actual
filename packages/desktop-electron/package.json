@@ -1,6 +1,6 @@
 {
   "name": "desktop-electron",
-  "version": "26.3.45",
+  "version": "26.3.46",
   "description": "A simple and powerful personal finance system",
   "author": "Actual",
   "main": "build/desktop-electron/index.js",
@@ -109,7 +109,7 @@
     "nsis": {
       "perMachine": false,
       "allowElevation": false,
-      "include": "installer.nsh"
+      "include": "resources/installer.nsh"
     },
     "publish": {
       "provider": "generic",
