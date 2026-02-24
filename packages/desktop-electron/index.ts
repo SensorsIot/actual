@@ -696,8 +696,22 @@ ipcMain.handle('check-and-download-update', async () => {
 });
 
 ipcMain.handle('install-update', () => {
-  // Delay so the IPC response can be sent before the app quits
   setTimeout(() => {
+    // Kill child processes first
+    if (serverProcess) {
+      serverProcess.kill();
+      serverProcess = null;
+    }
+    if (syncServerProcess) {
+      syncServerProcess.kill();
+      syncServerProcess = null;
+    }
+    // Close all windows
+    if (clientWin) {
+      clientWin.destroy();
+      clientWin = null;
+    }
+    // Force quit and install
     autoUpdater.quitAndInstall(true, true);
   }, 500);
 });
