@@ -791,15 +791,17 @@ ipcMain.handle('install-update', async () => {
   serverProcess = null;
   syncServerProcess = null;
 
+  // Prevent electron-updater's quit handler from spawning the installer.
+  // MUST be set BEFORE destroying the window, because destroy() triggers
+  // window-all-closed → app.quit() → quit handler, and if this flag is
+  // still true at that point the quit handler spawns a first installer
+  // copy before quitAndInstall even runs.
+  autoUpdater.autoInstallOnAppQuit = false;
+
   if (clientWin) {
     clientWin.destroy();
     clientWin = null;
   }
-
-  // Prevent electron-updater from launching a second installer copy
-  // on quit. quitAndInstall already spawns the installer, and
-  // autoInstallOnAppQuit would spawn another from installer.exe.
-  autoUpdater.autoInstallOnAppQuit = false;
 
   // Log electron-updater internal state for debugging the
   // "two installer processes" issue.
