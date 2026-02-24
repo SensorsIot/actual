@@ -171,9 +171,8 @@ export function FinancesApp() {
               button: {
                 title: t('Download & Install'),
                 action: async () => {
-                  if (global.Actual?.downloadUpdate) {
-                    await global.Actual.checkForUpdates();
-                    await global.Actual.downloadUpdate();
+                  if (global.Actual?.checkAndDownloadUpdate) {
+                    await global.Actual.checkAndDownloadUpdate();
                     await global.Actual.waitForUpdateReadyForDownload();
                     await global.Actual.applyAppUpdate();
                   } else {

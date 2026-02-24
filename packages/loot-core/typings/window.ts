@@ -48,6 +48,7 @@ type Actual = {
   startOAuthServer: () => Promise<string>;
   checkForUpdates: () => Promise<unknown>;
   downloadUpdate: () => Promise<unknown>;
+  checkAndDownloadUpdate: () => Promise<void>;
   onUpdateEvent: (handler: (type: string, data: unknown) => void) => void;
 };
 

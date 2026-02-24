@@ -120,6 +120,9 @@ contextBridge.exposeInMainWorld('Actual', {
 
   downloadUpdate: () => ipcRenderer.invoke('download-update'),
 
+  checkAndDownloadUpdate: () =>
+    ipcRenderer.invoke('check-and-download-update'),
+
   onUpdateEvent: (handler: (type: string, data: unknown) => void) => {
     const events = [
       'update-available',

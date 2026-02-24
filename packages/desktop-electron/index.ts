@@ -699,23 +699,59 @@ ipcMain.handle('check-and-download-update', async () => {
   return result;
 });
 
-ipcMain.handle('install-update', () => {
-  // Kill utility processes first, then force quit.
-  // app.exit() kills the main process and all children immediately,
-  // unlike app.quit() which waits for graceful shutdown.
-  // autoInstallOnAppQuit=true makes electron-updater launch the
-  // installer on the 'quit' event before the process dies.
-  if (serverProcess) {
-    serverProcess.kill();
-    serverProcess = null;
+ipcMain.handle('install-update', async () => {
+  logMessage('info', 'install-update called');
+  logMessage(
+    'info',
+    `serverProcess=${!!serverProcess}, syncServerProcess=${!!syncServerProcess}, clientWin=${!!clientWin}`,
+  );
+
+  // Step 1: Wait for server processes to exit gracefully so all DB
+  // writes are flushed. This is critical to avoid database corruption.
+  const waitForExit = (name: string, proc: typeof serverProcess) =>
+    new Promise<void>(resolve => {
+      if (!proc) {
+        logMessage('info', `${name}: not running`);
+        return resolve();
+      }
+      const timeout = setTimeout(() => {
+        logMessage('info', `${name}: timeout waiting for exit, continuing`);
+        resolve();
+      }, 5000);
+      proc.once('exit', () => {
+        clearTimeout(timeout);
+        logMessage('info', `${name}: exited`);
+        resolve();
+      });
+      proc.kill();
+    });
+
+  await Promise.all([
+    waitForExit('serverProcess', serverProcess),
+    waitForExit('syncServerProcess', syncServerProcess),
+  ]);
+  serverProcess = null;
+  syncServerProcess = null;
+
+  // Step 2: Destroy the renderer window so the main process has no
+  // visible windows and is ready to quit.
+  if (clientWin) {
+    clientWin.destroy();
+    clientWin = null;
   }
-  if (syncServerProcess) {
-    syncServerProcess.kill();
-    syncServerProcess = null;
-  }
+  logMessage('info', 'window destroyed, calling quitAndInstall(true, true)');
+
+  // Step 3: Launch the installer and quit. quitAndInstall spawns the
+  // NSIS installer as a detached process, then calls app.quit().
   autoUpdater.quitAndInstall(true, true);
-  // Force exit if quitAndInstall didn't kill us
-  setTimeout(() => app.exit(0), 1000);
+
+  // Step 4: Fallback — if quitAndInstall didn't kill us within 3s,
+  // force exit. This is safe because all server processes (and their
+  // DB connections) are already confirmed dead above.
+  setTimeout(() => {
+    logMessage('info', 'quitAndInstall did not exit, forcing app.exit(0)');
+    app.exit(0);
+  }, 3000);
 });
 
 ipcMain.handle(
