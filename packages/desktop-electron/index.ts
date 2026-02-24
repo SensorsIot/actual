@@ -519,7 +519,7 @@ app.on('ready', async () => {
     };
 
     autoUpdater.autoDownload = false;
-    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.autoInstallOnAppQuit = false; // We always use explicit quitAndInstall
 
     updateLog(`app version: ${app.getVersion()}`);
     updateLog(`update config: ${JSON.stringify(autoUpdater.updateConfigPath)}`);
@@ -764,10 +764,6 @@ ipcMain.handle('install-update', async () => {
     `serverProcess=${!!serverProcess}, syncServerProcess=${!!syncServerProcess}, clientWin=${!!clientWin}`,
   );
 
-  // Prevent electron-updater's quit handler from spawning a second
-  // installer. Must be set before quitAndInstall triggers app.quit().
-  autoUpdater.autoInstallOnAppQuit = false;
-
   // Null out server refs so before-quit handler won't try to kill them
   // (quitAndInstall → app.quit() → before-quit fires synchronously).
   // The NSIS installer's customInit macro will force-kill all Actual.exe
@@ -775,28 +771,15 @@ ipcMain.handle('install-update', async () => {
   serverProcess = null;
   syncServerProcess = null;
 
-  // Do NOT destroy the window here. Destroying it triggers
-  // window-all-closed → app.quit() which starts the quit sequence
-  // prematurely. Let quitAndInstall handle the quit.
-
-  const updaterAny = autoUpdater as unknown as Record<string, unknown>;
-  updateLog(
-    `state before quitAndInstall: autoInstallOnAppQuit=${autoUpdater.autoInstallOnAppQuit}, ` +
-      `quitAndInstallCalled=${updaterAny.quitAndInstallCalled}, ` +
-      `quitHandlerAdded=${updaterAny.quitHandlerAdded}`,
-  );
-
   // Launch the NSIS installer and quit. quitAndInstall spawns the
   // installer as a detached process, then calls app.quit(). The
   // installer's customInit macro (resources/installer.nsh) runs
   // taskkill /F /T /IM Actual.exe to force-kill all Electron processes
   // and sleeps before proceeding with the uninstall.
+  // NOTE: autoInstallOnAppQuit is set to false at setup time so the
+  // quit handler never races with this explicit install call.
   updateLog('calling quitAndInstall(true, true)');
   autoUpdater.quitAndInstall(true, true);
-
-  updateLog(
-    `state after quitAndInstall: quitAndInstallCalled=${updaterAny.quitAndInstallCalled}`,
-  );
 });
 
 ipcMain.handle(
