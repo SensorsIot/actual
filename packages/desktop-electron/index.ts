@@ -736,8 +736,8 @@ ipcMain.handle('install-update', async () => {
     `serverProcess=${!!serverProcess}, syncServerProcess=${!!syncServerProcess}, clientWin=${!!clientWin}`,
   );
 
-  // Step 1: Wait for server processes to exit gracefully so all DB
-  // writes are flushed. This is critical to avoid database corruption.
+  // Wait for server processes to exit gracefully so all DB writes are
+  // flushed. This is critical to avoid database corruption.
   const waitForExit = (name: string, proc: typeof serverProcess) =>
     new Promise<void>(resolve => {
       if (!proc) {
@@ -763,61 +763,16 @@ ipcMain.handle('install-update', async () => {
   serverProcess = null;
   syncServerProcess = null;
 
-  // Step 2: Prevent electron-updater from also launching the installer
-  // on quit (it copies installer to installer.exe and runs it on exit).
-  // We handle the installer launch ourselves below.
-  autoUpdater.autoInstallOnAppQuit = false;
-
-  // Step 3: Destroy the renderer window.
   if (clientWin) {
     clientWin.destroy();
     clientWin = null;
   }
-  updateLog('window destroyed');
 
-  // Step 4: Find the downloaded installer and launch it with a delay.
-  // We use a PowerShell one-liner to sleep 5 seconds then run the
-  // installer. This ensures the Electron process is fully dead before
-  // the NSIS installer tries to uninstall the old version.
-  const { spawn } = await import('child_process');
-  const cacheDir = path.join(
-    app.getPath('home'),
-    'AppData',
-    'Local',
-    'desktop-electron-updater',
-    'pending',
-  );
-  const installerPath = path.join(cacheDir, 'Actual-Setup-x64.exe');
-
-  if (fs.existsSync(installerPath)) {
-    updateLog(`spawning installer: ${installerPath}`);
-    const child = spawn(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-Command',
-        `Start-Sleep -Seconds 5; Start-Process -FilePath '${installerPath}' -ArgumentList '/S'`,
-      ],
-      {
-        detached: true,
-        stdio: 'ignore',
-      },
-    );
-    child.unref();
-    updateLog('installer spawned with 5s delay, exiting app now');
-  } else {
-    updateLog(`installer not found at ${installerPath}, falling back to quitAndInstall`);
-    autoUpdater.quitAndInstall(true, true);
-  }
-
-  // Exit immediately — server processes are already dead, DB is safe.
-  updateLog('calling app.exit(0)');
-  app.exit(0);
-  // Fallback: if app.exit didn't work, force kill after 1s.
-  setTimeout(() => {
-    updateLog('app.exit(0) did not terminate, calling process.exit(0)');
-    process.exit(0);
-  }, 1000);
+  // Launch the NSIS installer and quit. The installer's customInit
+  // macro (resources/installer.nsh) runs taskkill /F /T /IM Actual.exe
+  // to force-kill any remaining Electron processes before proceeding.
+  updateLog('calling quitAndInstall(true, true)');
+  autoUpdater.quitAndInstall(true, true);
 });
 
 ipcMain.handle(
