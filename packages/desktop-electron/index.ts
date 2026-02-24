@@ -782,15 +782,16 @@ ipcMain.handle('install-update', async () => {
 
   const installerPath = downloadedInstallerPath;
 
-  // Spawn a delayed installer launch via cmd.exe. The /c flag runs
-  // the command and exits. timeout /t 5 waits 5 seconds (enough for
-  // all Electron processes to fully die and release file locks).
-  // Then start launches the installer detached.
+  // Spawn a delayed installer launch via cmd.exe. Uses ping for the
+  // delay because `timeout` requires a console/stdin and fails in
+  // detached processes with stdio: 'ignore'. ping -n 6 = 5 pings at
+  // 1s interval = 5 seconds. The & operator runs the installer after.
+  const updateLog2 = path.join(app.getPath('userData'), 'auto-update-install.log');
   const delayedInstaller = spawn(
     'cmd.exe',
     [
       '/c',
-      `timeout /t 5 /nobreak >nul & "${installerPath}" --updated /S --force-run`,
+      `ping -n 6 127.0.0.1 >nul & echo %date% %time% starting installer >> "${updateLog2}" & "${installerPath}" --updated /S --force-run & echo %date% %time% installer exited >> "${updateLog2}"`,
     ],
     {
       detached: true,
