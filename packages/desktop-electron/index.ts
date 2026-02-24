@@ -768,6 +768,11 @@ ipcMain.handle('install-update', async () => {
     clientWin = null;
   }
 
+  // Prevent electron-updater from launching a second installer copy
+  // on quit. quitAndInstall already spawns the installer, and
+  // autoInstallOnAppQuit would spawn another from installer.exe.
+  autoUpdater.autoInstallOnAppQuit = false;
+
   // Launch the NSIS installer and quit. The installer's customInit
   // macro (resources/installer.nsh) runs taskkill /F /T /IM Actual.exe
   // to force-kill any remaining Electron processes before proceeding.
