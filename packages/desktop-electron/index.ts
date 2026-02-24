@@ -775,10 +775,10 @@ ipcMain.handle('install-update', async () => {
   }
   updateLog('window destroyed');
 
-  // Step 4: Find the downloaded installer and launch it manually
-  // with a delay, then exit the app. This ensures the Electron
-  // process is fully dead before the NSIS installer tries to
-  // uninstall the old version.
+  // Step 4: Find the downloaded installer and launch it with a delay.
+  // We use a PowerShell one-liner to sleep 5 seconds then run the
+  // installer. This ensures the Electron process is fully dead before
+  // the NSIS installer tries to uninstall the old version.
   const { spawn } = await import('child_process');
   const cacheDir = path.join(
     app.getPath('home'),
@@ -791,19 +791,20 @@ ipcMain.handle('install-update', async () => {
 
   if (fs.existsSync(installerPath)) {
     updateLog(`spawning installer: ${installerPath}`);
-    // Use cmd /c with timeout to delay installer start by 3 seconds,
-    // giving the app time to fully exit.
     const child = spawn(
-      'cmd.exe',
-      ['/c', 'timeout', '/t', '3', '/nobreak', '>', 'NUL', '&&', installerPath, '/S'],
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-Command',
+        `Start-Sleep -Seconds 5; Start-Process -FilePath '${installerPath}' -ArgumentList '/S'`,
+      ],
       {
         detached: true,
         stdio: 'ignore',
-        shell: false,
       },
     );
     child.unref();
-    updateLog('installer spawned with 3s delay, exiting app');
+    updateLog('installer spawned with 5s delay, exiting app now');
   } else {
     updateLog(`installer not found at ${installerPath}, falling back to quitAndInstall`);
     autoUpdater.quitAndInstall(true, true);
