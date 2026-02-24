@@ -75,6 +75,7 @@ let serverProcess: UtilityProcess | null;
 let syncServerProcess: UtilityProcess | null;
 
 let oAuthServer: ReturnType<typeof createServer> | null;
+let downloadedInstallerPath: string | null = null;
 
 let queuedClientWinLogs: string[] = []; // logs that are queued up until the client window is ready
 
@@ -549,8 +550,6 @@ app.on('ready', async () => {
       updateLog(`download-progress: ${progress.percent.toFixed(1)}%`);
       sendUpdateEvent('download-progress', { percent: progress.percent });
     });
-
-    let downloadedInstallerPath: string | null = null;
 
     autoUpdater.on('update-downloaded', info => {
       downloadedInstallerPath = info.downloadedFile;
