@@ -1040,6 +1040,10 @@ async function parseKantonalbankXLSX(
     // Parse Buchungstext for payee/notes
     const { payee, notes } = parseKantonalbankBuchungstext(buchungstext);
 
+    // Extract Ref.-Nr. as unique transaction ID for deduplication
+    const refMatch = buchungstext.match(/Ref\.-Nr\.\s+(\d+)/);
+    const importedId = refMatch ? `KBBL-${refMatch[1]}` : undefined;
+
     // Track saldo for balance verification
     if (saldo !== undefined) {
       // First saldo = balance AFTER first transaction, so start = saldo - amount
@@ -1055,6 +1059,7 @@ async function parseKantonalbankXLSX(
       payee_name: payee || buchungstext.split('\n')[0]?.slice(0, 50) || '',
       imported_payee: payee || buchungstext.split('\n')[0]?.slice(0, 50) || '',
       notes: options.importNotes ? notes : '',
+      ...(importedId && { imported_id: importedId }),
     });
   }
 

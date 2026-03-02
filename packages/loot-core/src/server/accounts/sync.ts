@@ -875,20 +875,13 @@ export async function matchTransactions(
     return data;
   });
 
-  // The final fuzzy matching pass. This is the lowest fidelity
-  // matching: it just find the first transaction that hasn't been
-  // matched yet. Remember the dataset only contains transactions
-  // around the same date with the same amount.
-  const transactionsStep3 = transactionsStep2.map(data => {
-    if (!data.match && data.fuzzyDataset) {
-      const match = data.fuzzyDataset.find(row => !hasMatched.has(row.id));
-      if (match) {
-        hasMatched.add(match.id);
-        return { ...data, match };
-      }
-    }
-    return data;
-  });
+  // Step 3: lowest fidelity fuzzy matching (disabled).
+  // Previously this matched any unmatched transaction with similar
+  // date/amount, which caused false positives (e.g. "Bangeter" matching
+  // "Mobel Pfister"). Since all imports now come from the same bank
+  // data source, dedup is handled by imported_id (step 1) and payee
+  // match (step 2).
+  const transactionsStep3 = transactionsStep2;
 
   return {
     payeesToCreate,
