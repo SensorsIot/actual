@@ -883,17 +883,26 @@ function parseKantonalbankBuchungstext(buchungstext: string): {
     // Payee is on line 2, strip last word (city)
     const payeeLine = lines[1] || '';
     const payeeParts = payeeLine.split(/\s+/);
-    const payee =
+    let payee =
       payeeParts.length > 1 ? payeeParts.slice(0, -1).join(' ') : payeeLine;
 
-    // FX info in notes
-    const fxLines = lines.filter(
-      l =>
+    // Strip payment provider prefixes (e.g. "SUMUP  *COIFFEUR SARAH" -> "COIFFEUR SARAH")
+    const isSumUp = /^SUMUP\s+\*/i.test(payee);
+    payee = payee.replace(/^SUMUP\s+\*/i, '');
+
+    // FX info and payment method in notes
+    const noteLines: string[] = [];
+    if (isSumUp) noteLines.push('SumUp');
+    for (const l of lines) {
+      if (
         l.startsWith('Originalbetrag') ||
         l.startsWith('Währungskurs') ||
-        l.startsWith('Wahrungskurs'),
-    );
-    return { payee, notes: fxLines.join('\n') };
+        l.startsWith('Wahrungskurs')
+      ) {
+        noteLines.push(l);
+      }
+    }
+    return { payee, notes: noteLines.join('\n') };
   }
 
   // --- TWINT-Zahlung: Geld gesendet/erhalten ---
@@ -907,6 +916,7 @@ function parseKantonalbankBuchungstext(buchungstext: string): {
       const triggerIdx = lines.findIndex(
         l => l.includes('Geld gesendet') || l.includes('Geld erhalten'),
       );
+      const direction = lines[triggerIdx] || '';
       // Person name is line after trigger
       const payee = lines[triggerIdx + 1] || lines[1] || '';
 
@@ -921,6 +931,8 @@ function parseKantonalbankBuchungstext(buchungstext: string): {
         }
         noteLines.push(lines[i]);
       }
+      // Only add "TWINT" if there's no message text
+      if (noteLines.length === 0) noteLines.push('TWINT');
       return { payee, notes: noteLines.join('\n') };
     }
 
@@ -929,7 +941,7 @@ function parseKantonalbankBuchungstext(buchungstext: string): {
     const lastComma = payeeLine.lastIndexOf(',');
     const payee =
       lastComma > 0 ? payeeLine.slice(0, lastComma).trim() : payeeLine;
-    return { payee, notes: '' };
+    return { payee, notes: 'TWINT' };
   }
 
   // --- Zahlungsauftrag ---
@@ -1002,6 +1014,7 @@ async function parseKantonalbankXLSX(
   const transactions: StructuredTransaction[] = [];
 
   // First row is header, data starts at row 1
+  let bankSaldoStart: number | undefined;
   let bankSaldo: number | undefined;
 
   for (let i = 1; i < sheetData.length; i++) {
@@ -1011,7 +1024,7 @@ async function parseKantonalbankXLSX(
     // Column mapping:
     // 0: Auftragsdatum, 1: Buchungstext, 2: Valutadatum
     // 3: Belastungsbetrag, 4: Gutschriftsbetrag, 5: Buchungswährung, 6: Saldo
-    const dateValue = row[0];
+    const dateValue = row[2] || row[0]; // Use Valutadatum, fall back to Auftragsdatum
     const buchungstext = String(row[1] || '');
     const belastung = typeof row[3] === 'number' ? row[3] : 0;
     const gutschrift = typeof row[4] === 'number' ? row[4] : 0;
@@ -1027,8 +1040,12 @@ async function parseKantonalbankXLSX(
     // Parse Buchungstext for payee/notes
     const { payee, notes } = parseKantonalbankBuchungstext(buchungstext);
 
-    // Track last saldo for balance verification
+    // Track saldo for balance verification
     if (saldo !== undefined) {
+      // First saldo = balance AFTER first transaction, so start = saldo - amount
+      if (bankSaldoStart === undefined) {
+        bankSaldoStart = Math.round(saldo * 100) - amountCents;
+      }
       bankSaldo = Math.round(saldo * 100);
     }
 
@@ -1045,6 +1062,7 @@ async function parseKantonalbankXLSX(
     errors,
     transactions,
     metadata: {
+      bankSaldoStart,
       bankSaldo,
       bankFormat: 'kantonalbank',
     },

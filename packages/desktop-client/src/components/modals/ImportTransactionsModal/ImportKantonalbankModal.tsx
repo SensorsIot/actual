@@ -80,8 +80,11 @@ export function ImportKantonalbankModal({
   );
   const [targetAccountId, setTargetAccountId] = useState<string | null>(null);
 
-  // Bank saldo from XLSX
-  const [bankSaldo, setBankSaldo] = useState<number | null>(null);
+  // Bank start saldo from XLSX
+  const [bankSaldoStart, setBankSaldoStart] = useState<number | null>(null);
+
+  // Actual account balance (before import)
+  const [actualBalance, setActualBalance] = useState<number | null>(null);
 
   // Shared Swiss bank import hook
   const {
@@ -124,8 +127,8 @@ export function ImportKantonalbankModal({
       }
 
       // Store bank saldo if present
-      if (metadata?.bankSaldo !== undefined) {
-        setBankSaldo(metadata.bankSaldo);
+      if (metadata?.bankSaldoStart !== undefined) {
+        setBankSaldoStart(metadata.bankSaldoStart);
       }
 
       // Load import settings
@@ -141,6 +144,9 @@ export function ImportKantonalbankModal({
         );
         if (account) {
           setTargetAccountId(account.id);
+          // Fetch account balance for saldo comparison
+          const props = await send('account-properties', { id: account.id });
+          setActualBalance(props.balance);
         } else {
           setShowSettingsDialog(true);
         }
@@ -390,6 +396,10 @@ export function ImportKantonalbankModal({
       setTargetAccountId(account.id);
       setShowSettingsDialog(false);
 
+      // Fetch account balance for saldo comparison
+      const props = await send('account-properties', { id: account.id });
+      setActualBalance(props.balance);
+
       // Run preview with transactions
       if (parsedTransactions.length > 0) {
         await runImportPreview(parsedTransactions, account.id);
@@ -427,23 +437,67 @@ export function ImportKantonalbankModal({
               </View>
             )}
 
-            {/* Bank Saldo Info */}
-            {bankSaldo !== null && (
-              <View
-                style={{
-                  marginBottom: 10,
-                  padding: 10,
-                  backgroundColor: theme.tableRowBackgroundHover,
-                  borderRadius: 4,
-                }}
-              >
-                <Text style={{ fontSize: '0.9em' }}>
-                  <Trans>
-                    Bank balance from file: CHF {(bankSaldo / 100).toFixed(2)}
-                  </Trans>
-                </Text>
-              </View>
-            )}
+            {/* Balance Check: Actual vs Bank start saldo */}
+            {bankSaldoStart !== null && actualBalance !== null && (() => {
+              const match = actualBalance === bankSaldoStart;
+              return (
+                <View
+                  style={{
+                    marginBottom: 10,
+                    padding: 10,
+                    backgroundColor: theme.tableRowBackgroundHover,
+                    borderRadius: 4,
+                    border: match
+                      ? undefined
+                      : '1px solid ' + theme.errorText,
+                  }}
+                >
+                  {match ? (
+                    <Text style={{ fontSize: '0.9em' }}>
+                      <Trans>
+                        Account balance matches bank start saldo: CHF{' '}
+                        {(actualBalance / 100).toFixed(2)}
+                      </Trans>
+                    </Text>
+                  ) : (
+                    <>
+                      <Text
+                        style={{
+                          fontSize: '0.9em',
+                          fontWeight: 'bold',
+                          color: theme.errorText,
+                        }}
+                      >
+                        <Trans>Balance mismatch!</Trans>
+                      </Text>
+                      <Text style={{ fontSize: '0.9em' }}>
+                        <Trans>
+                          Actual balance: CHF{' '}
+                          {(actualBalance / 100).toFixed(2)}
+                        </Trans>
+                      </Text>
+                      <Text style={{ fontSize: '0.9em' }}>
+                        <Trans>
+                          Bank start saldo: CHF{' '}
+                          {(bankSaldoStart / 100).toFixed(2)}
+                        </Trans>
+                      </Text>
+                      <Text
+                        style={{
+                          fontSize: '0.9em',
+                          color: theme.errorText,
+                        }}
+                      >
+                        <Trans>
+                          Difference: CHF{' '}
+                          {((actualBalance - bankSaldoStart) / 100).toFixed(2)}
+                        </Trans>
+                      </Text>
+                    </>
+                  )}
+                </View>
+              );
+            })()}
 
             {loadingState !== 'parsing' && transactions.length > 0 && (
               <TransactionList
