@@ -64,8 +64,8 @@ Fixed broken duplicate detection during Swiss bank imports by passing `trx_id` t
 ## Documentation
 
 - [Fork FSD](Documents/Fork-FSD.md) - Full functional specification of all fork changes
-- [Custom Features Guide](docs/Custom-Features.md)
-- [Budget vs Actual FSD](docs/Actual-fsd.md)
+- [Custom Features Guide](Documents/Custom-Features.md)
+- [Budget vs Actual FSD](Documents/Actual-fsd.md)
 
 ## Building
 

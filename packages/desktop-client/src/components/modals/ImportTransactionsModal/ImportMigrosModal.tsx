@@ -36,10 +36,12 @@ import { useDispatch } from '@desktop-client/redux';
 
 type ImportSettings = {
   migros_account: string;
+  cash_account: string;
 };
 
 const DEFAULT_IMPORT_SETTINGS: ImportSettings = {
   migros_account: '',
+  cash_account: '',
 };
 
 type ImportMigrosModalProps = {
@@ -130,6 +132,7 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
       const settings = await send('swiss-bank-get-import-settings');
       setImportSettings({
         migros_account: settings.migros_account || '',
+        cash_account: settings.cash_account || '',
       });
 
       // Find target account
@@ -497,8 +500,7 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
                   style={{ marginBottom: 15, color: theme.pageTextSubdued }}
                 >
                   <Trans>
-                    Select the account where Migros transactions should be
-                    imported.
+                    Select the accounts for Migros import and ATM transfers.
                   </Trans>
                 </Text>
 
@@ -515,6 +517,32 @@ export function ImportMigrosModal({ options }: ImportMigrosModalProps) {
                         setImportSettings({
                           ...importSettings,
                           migros_account: e,
+                        })
+                      }
+                      options={[
+                        ['', t('Select an account...')] as [string, string],
+                        ...accounts
+                          .filter(a => !a.closed)
+                          .map(a => [a.name, a.name] as [string, string]),
+                      ]}
+                      style={{ flex: 1 }}
+                    />
+                  </label>
+                </View>
+
+                <View style={{ marginBottom: 10 }}>
+                  <label
+                    style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+                  >
+                    <Text style={{ width: 150 }}>
+                      <Trans>Cash Account (ATM):</Trans>
+                    </Text>
+                    <Select
+                      value={importSettings.cash_account}
+                      onChange={(e: string) =>
+                        setImportSettings({
+                          ...importSettings,
+                          cash_account: e,
                         })
                       }
                       options={[

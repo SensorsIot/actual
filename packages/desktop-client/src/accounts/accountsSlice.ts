@@ -220,9 +220,10 @@ export const importMigrosTransactions = createAppAsyncThunk(
 /**
  * Import Kantonalbank transactions to the configured account.
  * Uses kantonalbank_account from import_settings.json.
+ * ATM withdrawals are linked as transfers to cash_account.
  */
 type ImportKantonalbankTransactionsPayload = {
-  transactions: ImportTransactionEntity[];
+  transactions: (ImportTransactionEntity & { transaction_type?: string })[];
 };
 
 export const importKantonalbankTransactions = createAppAsyncThunk(

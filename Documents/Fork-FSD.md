@@ -230,11 +230,70 @@ All located under `packages/desktop-client/src/components/modals/ImportTransacti
 - **XLSX parsing**: Reads bank-specific XLSX formats with `swissBankFormat` option
 - **Bank balance display**: Extracts and shows CHF balance from file metadata
 - **Transaction type detection**: Identifies SWIFT transfers, ATM withdrawals, exchanges as "Transfer" type
+- **ATM transfer linking**: Bancomat-Bezug transactions are automatically linked as transfers to the configured cash account (all importers share the `cash_account` setting)
 - **Editable notes**: Per-transaction notes field
 - **Category selection**: Dropdown per transaction with suggestions
 - **Payee mapping learning**: First import learns from existing transactions
 - **Duplicate detection**: Three states per transaction: `new`, `ignored`, `existing` (with merge option)
 - **Normalized matching**: Case-insensitive payee matching via `getNormalisedString`
+
+### ATM Transfer Handling
+
+All three importers (Kantonalbank, Migros, Revolut) detect ATM withdrawal transactions and create linked transfers to the shared `cash_account` configured in import settings. The user can name this account anything (e.g., "Kasse", "Portemonnaie").
+
+**Detection patterns by bank:**
+
+| Bank | Pattern in Buchungstext | transaction_type |
+|------|------------------------|-----------------|
+| Kantonalbank | `Bancomat-Bezug`, `Bancomat-Einzahlung` | `atm` |
+| Migros | `Bankomatauszahlung`, `Bargeldbezug`, `Geldautomat`, `Bargeld` | `atm` |
+| Revolut | CSV `Type` column = `ATM` | `atm` |
+
+**Flow:**
+1. **Parser** (`parse-file.ts`): Detects ATM keywords in transaction text, sets `transaction_type: 'atm'` on the parsed transaction
+2. **Modal**: Passes `transaction_type` through to the server; ATM transactions skip category validation
+3. **Server** (`app.ts`): After importing the transaction into the source bank account:
+   - Finds or creates the cash account (off-budget)
+   - Creates a counter-transaction with opposite sign in the cash account
+   - Links both transactions via `transfer_id` in both directions
+   - Sets the correct transfer payees on both sides
+
+### Import Settings
+
+All three importers share a common settings file (`import_settings.json` in the budget directory). Each importer's settings dialog allows configuring the cash account, so the user can set it up from whichever importer they use first.
+
+| Setting | Used by | Purpose |
+|---------|---------|---------|
+| `kantonalbank_account` | Kantonalbank | Target account for Kantonalbank transactions |
+| `migros_account` | Migros | Target account for Migros transactions |
+| `revolut_bank_account` | Revolut | Bank account for Revolut top-ups/withdrawals |
+| `cash_account` | All three | Cash account for ATM withdrawals (e.g., "Kasse", "Portemonnaie") |
+| `revolut_differenz_category` | Revolut | Category for exchange rate difference corrections |
+
+**Settings dialogs per importer:**
+
+| Importer | Fields shown |
+|----------|-------------|
+| Kantonalbank | Kantonalbank Account, Cash Account (ATM) |
+| Migros | Migros Account, Cash Account (ATM) |
+| Revolut | Topup Bank Account, Cash Account (ATM), Differenz Category |
+
+### Revolut Multi-Currency Handling
+
+The Revolut importer adapts its behavior based on the number of currencies in the import file:
+
+**Single-currency file** (e.g., only CHF):
+- No exchange rate conversion needed — balance is deterministic
+- "Current Revolut Total (CHF)" input field is hidden
+- Balance correction prompt is skipped after import
+- Import proceeds directly after selecting transactions
+
+**Multi-currency file** (e.g., CHF + EUR + USD):
+- "Current Revolut Total (CHF)" input is required before import
+- After import, compares calculated balance against entered total
+- If there is a difference (due to exchange rate fluctuations), prompts user to select a category and books a correction transaction
+
+The Differenz Category setting persists across imports — it is configured once and reused whenever a multi-currency file is imported.
 
 ### Server API Calls
 
@@ -285,7 +344,7 @@ All under `packages/desktop-client/src/components/reports/`
 - Category editing inline: reassign transactions, report auto-refreshes
 - Auto-closes when last transaction is moved
 
-See also: `docs/Actual-fsd.md` and `docs/Custom-Features.md` for detailed sign convention documentation.
+See also: `Documents/Actual-fsd.md` and `Documents/Custom-Features.md` for detailed sign convention documentation.
 
 ---
 
@@ -399,10 +458,10 @@ The following workflows are restricted to `workflow_dispatch` to prevent acciden
 |------|---------|
 | `packages/desktop-electron/resources/installer.nsh` | NSIS custom macro: kill processes + delete uninstall registry key |
 | `Documents/Fork-FSD.md` | This document |
-| `docs/Custom-Features.md` | Custom features guide |
-| `docs/Actual-fsd.md` | Budget vs Actual FSD |
-| `docs/Actual-Reporting-fsd.md` | Reporting FSD |
-| `docs/Actual-CSV-Importer-fsd.md` | CSV Importer FSD |
+| `Documents/Custom-Features.md` | Custom features guide |
+| `Documents/Actual-fsd.md` | Budget vs Actual FSD |
+| `Documents/Actual-Reporting-fsd.md` | Reporting FSD |
+| `Documents/Actual-CSV-Importer-fsd.md` | CSV Importer FSD |
 | Swiss bank import files (5 files) | See Section 2 |
 
 ### Modified Files (fork changes)
@@ -437,3 +496,4 @@ The following workflows are restricted to `workflow_dispatch` to prevent acciden
 | 26.3.60 | Set `autoInstallOnAppQuit = false` at setup time (fix quit handler race condition) |
 | 26.3.72 | Fix NSIS `DeleteRegKey`: use correct UUID v5 hash instead of raw appId string |
 | 26.3.73 | Auto-update fully working end-to-end |
+| 26.3.74 | Kantonalbank ATM transfers: Bancomat-Bezug linked to cash account. All importers use shared `cash_account` setting (no more hardcoded "Kasse"). Cash Account (ATM) dropdown added to all settings dialogs. Revolut: skip balance total input and correction for single-currency files |

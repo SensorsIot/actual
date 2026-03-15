@@ -1518,7 +1518,7 @@ async function importRevolutTransactions({
         // │ TRANSFER TYPES      │ Create linked transfer to another account   │
         // │ exchange            │ Skip (linked above via timestamp matching)  │
         // │ swift_transfer      │ Link to Migros Bank (always create)         │
-        // │ atm                 │ Link to Kasse (always create)               │
+        // │ atm                 │ Link to cash account (always create)        │
         // ├─────────────────────┼─────────────────────────────────────────────┤
         // │ PAYMENT             │ Normal transaction with payee (no linking)  │
         // │ payment             │ All payment types (card, fee, topup, etc.)  │
@@ -1533,7 +1533,7 @@ async function importRevolutTransactions({
             targetAccountName = bankAccountName;
             break;
 
-          // === TRANSFER: Revolut → Kasse ===
+          // === TRANSFER: Revolut → Cash account ===
           case 'atm':
             targetAccountName = cashAccountName;
             break;
@@ -1558,7 +1558,7 @@ async function importRevolutTransactions({
         if (targetAccount) {
           targetAccountId = targetAccount.id;
         } else {
-          // Create the account (off-budget for Kasse)
+          // Create the account (off-budget for cash account)
           const isOffBudget = targetAccountName === cashAccountName;
           targetAccountId = await findOrCreateAccount(
             targetAccountName,
@@ -1856,7 +1856,7 @@ async function importMigrosTransactions({
     const importSettings = await getImportSettings();
     const accountName = importSettings.migros_account;
     const cashAccountName =
-      opts?.cashAccountName || importSettings.cash_account || 'Kasse';
+      opts?.cashAccountName || importSettings.cash_account;
     const createTransfers = opts?.createTransfers !== false;
 
     if (!accountName) {
@@ -1966,16 +1966,17 @@ async function importMigrosTransactions({
     }
 
     // Create linked transfers for transfer-type transactions
-    if (!isPreview && createTransfers && importedWithMeta.length > 0) {
+    if (!isPreview && createTransfers && cashAccountName && importedWithMeta.length > 0) {
       for (const imported of importedWithMeta) {
         const { id: txnId, txn } = imported;
         const txnType = txn.transaction_type || '';
-        const targetAccountName = txn.transfer_account;
 
-        // Only process ATM transactions with transfer_account set
-        if (txnType !== 'atm' || !targetAccountName) continue;
+        // Only process ATM transactions
+        if (txnType !== 'atm') continue;
 
-        // Find or create target account (Kasse)
+        const targetAccountName = cashAccountName;
+
+        // Find or create target account (cash account from settings)
         const targetAccount = await db.first<db.DbAccount>(
           'SELECT id FROM accounts WHERE name = ? AND tombstone = 0',
           [targetAccountName],
@@ -1985,7 +1986,7 @@ async function importMigrosTransactions({
         if (targetAccount) {
           targetAccountId = targetAccount.id;
         } else {
-          // Create Kasse as off-budget account
+          // Create cash account as off-budget
           targetAccountId = await findOrCreateAccount(targetAccountName, true);
           logger.info(`Created transfer target account: ${targetAccountName}`);
         }
@@ -2002,7 +2003,7 @@ async function importMigrosTransactions({
           [accountId],
         );
 
-        // Create counter-transaction in target account (Kasse)
+        // Create counter-transaction in target account
         const counterId = uuidv4();
         const counterAmount = -(txn.amount ?? 0); // Opposite sign
 
@@ -2021,7 +2022,7 @@ async function importMigrosTransactions({
         await db.updateTransaction({
           id: txnId,
           transfer_id: counterId,
-          payee: targetTransferPayee?.id || null, // Points to Kasse
+          payee: targetTransferPayee?.id || null, // Points to cash account
         });
 
         result.transfersLinked++;
@@ -2049,20 +2050,25 @@ async function importMigrosTransactions({
 /**
  * Import Kantonalbank XLSX transactions to the configured account.
  * Uses kantonalbank_account from import_settings.json.
- * No transfer type handling (unlike Migros).
+ * ATM withdrawals (Bancomat-Bezug) are linked as transfers to cash_account.
  */
+type KantonalbankImportTransaction = ImportTransactionEntity & {
+  transaction_type?: string;
+};
+
 type KantonalbankImportResult = {
   errors: Array<{ message: string }>;
   accountUsed: string;
   imported: { added: string[]; updated: string[] };
   categoriesApplied: number;
+  transfersLinked: number;
 };
 
 async function importKantonalbankTransactions({
   transactions,
   isPreview = false,
 }: {
-  transactions: ImportTransactionEntity[];
+  transactions: KantonalbankImportTransaction[];
   isPreview?: boolean;
 }): Promise<KantonalbankImportResult> {
   const result: KantonalbankImportResult = {
@@ -2070,12 +2076,14 @@ async function importKantonalbankTransactions({
     accountUsed: '',
     imported: { added: [], updated: [] },
     categoriesApplied: 0,
+    transfersLinked: 0,
   };
 
   try {
     // Load settings from import_settings.json
     const importSettings = await getImportSettings();
     const accountName = importSettings.kantonalbank_account;
+    const cashAccountName = importSettings.cash_account;
 
     if (!accountName) {
       result.errors.push({
@@ -2104,10 +2112,13 @@ async function importKantonalbankTransactions({
       logger.info(`Created Kantonalbank account: ${accountName}`);
     }
 
-    // Load payee-category mapping and apply to transactions
+    // Load payee-category mapping and apply to non-transfer transactions
     const payeeMapping = await getSwissBankPayeeMapping({});
     if (Object.keys(payeeMapping).length > 0) {
       for (const txn of transactions) {
+        // Skip ATM transactions — they become transfers, not categorized expenses
+        if (txn.transaction_type === 'atm') continue;
+
         if (!txn.category) {
           const isExpense =
             typeof txn.amount === 'number' ? txn.amount < 0 : true;
@@ -2130,10 +2141,16 @@ async function importKantonalbankTransactions({
       );
     }
 
+    // Strip custom fields before importing (reconcileTransactions doesn't know them)
+    const cleanTransactions = transactions.map(txn => {
+      const { transaction_type: _txnType, ...clean } = txn;
+      return clean;
+    });
+
     // Import transactions to this account
     const reconciled = await bankSync.reconcileTransactions(
       accountId,
-      transactions,
+      cleanTransactions,
       false,
       true,
       isPreview,
@@ -2144,8 +2161,82 @@ async function importKantonalbankTransactions({
       updated: reconciled.updated,
     };
 
+    // Create linked transfers for ATM transactions
+    if (!isPreview && cashAccountName && reconciled.added.length > 0) {
+      // Build map: index -> original transaction (with transaction_type)
+      const importedWithMeta: Array<{
+        id: string;
+        txn: KantonalbankImportTransaction;
+      }> = [];
+
+      for (let i = 0; i < transactions.length; i++) {
+        const txnId = reconciled.added[i];
+        const originalTxn = transactions[i];
+        if (originalTxn && txnId) {
+          importedWithMeta.push({ id: txnId, txn: originalTxn });
+        }
+      }
+
+      for (const imported of importedWithMeta) {
+        const { id: txnId, txn } = imported;
+        if (txn.transaction_type !== 'atm') continue;
+
+        // Find or create cash account
+        const targetAccount = await db.first<db.DbAccount>(
+          'SELECT id FROM accounts WHERE name = ? AND tombstone = 0',
+          [cashAccountName],
+        );
+
+        let targetAccountId: string;
+        if (targetAccount) {
+          targetAccountId = targetAccount.id;
+        } else {
+          targetAccountId = await findOrCreateAccount(cashAccountName, true);
+          logger.info(`Created cash account: ${cashAccountName}`);
+        }
+
+        // Get transfer payees for both directions
+        const targetTransferPayee = await db.first<{ id: string }>(
+          'SELECT id FROM payees WHERE transfer_acct = ? AND tombstone = 0',
+          [targetAccountId],
+        );
+        const sourceTransferPayee = await db.first<{ id: string }>(
+          'SELECT id FROM payees WHERE transfer_acct = ? AND tombstone = 0',
+          [accountId],
+        );
+
+        // Create counter-transaction in cash account
+        const counterId = uuidv4();
+        const counterAmount = -(txn.amount ?? 0);
+
+        await db.insertTransaction({
+          id: counterId,
+          account: targetAccountId,
+          amount: counterAmount,
+          payee: sourceTransferPayee?.id || null,
+          date: txn.date,
+          notes: `[Transfer] ${txn.imported_payee || txn.payee_name || 'Bancomat'}`,
+          cleared: true,
+          transfer_id: txnId,
+        });
+
+        // Update original transaction with link to counter
+        await db.updateTransaction({
+          id: txnId,
+          transfer_id: counterId,
+          payee: targetTransferPayee?.id || null,
+        });
+
+        result.transfersLinked++;
+
+        logger.info(
+          `Linked transfer: ${accountName} -> ${cashAccountName} (${counterAmount / 100} CHF)`,
+        );
+      }
+    }
+
     logger.info(
-      `Kantonalbank import to ${accountName}: ${reconciled.added.length} added, ${reconciled.updated.length} updated`,
+      `Kantonalbank import to ${accountName}: ${reconciled.added.length} added, ${reconciled.updated.length} updated, ${result.transfersLinked} transfers linked`,
     );
 
     return result;

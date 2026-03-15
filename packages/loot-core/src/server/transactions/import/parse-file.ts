@@ -135,6 +135,7 @@ type ParseError = { message: string; internal: string };
 
 // Metadata returned by Swiss bank parsers
 export type SwissBankMetadata = {
+  bankSaldoStart?: number; // Bank balance before first transaction (in cents)
   bankSaldo?: number; // Bank balance from CSV header (in cents)
   bankFormat?: 'migros' | 'revolut' | 'kantonalbank';
   currencies?: string[]; // For Revolut: list of currencies found
@@ -270,7 +271,7 @@ function classifyMigrosTransaction(buchungstext: string): {
 } {
   const textLower = buchungstext.toLowerCase();
 
-  // ATM Withdrawal: Bank -> Cash (Kasse)
+  // ATM Withdrawal: Bank -> Cash account (from import settings)
   // Patterns: "Bankomatauszahlung", "Bargeldbezug", "Geldautomat", "Bezug am Bankomat"
   if (
     textLower.includes('bankomat') ||
@@ -278,7 +279,7 @@ function classifyMigrosTransaction(buchungstext: string): {
     textLower.includes('geldautomat') ||
     textLower.includes('bargeld')
   ) {
-    return { type: 'atm', transferAccount: 'Kasse' };
+    return { type: 'atm', transferAccount: null };
   }
 
   // Regular transaction
@@ -511,8 +512,8 @@ function classifyRevolutTransaction(
     // ===== TRANSFER: Revolut ↔ Bank/Kasse =====
 
     case 'atm':
-      // ATM Withdrawal: Revolut -> Kasse (convert to CHF)
-      return { type: 'atm', transferAccount: 'Kasse' };
+      // ATM Withdrawal: Revolut -> Cash account (from import settings)
+      return { type: 'atm', transferAccount: null };
 
     case 'transfer':
       // Check for SWIFT Transfer to bank
@@ -860,6 +861,25 @@ function xlsxDateToString(value: unknown): string {
  * The Buchungstext field contains multiline text with different patterns
  * depending on the transaction type.
  */
+/**
+ * Classify Kantonalbank transaction type and detect transfer targets.
+ * Detects ATM withdrawals (Bancomat-Bezug) as transfers to cash account.
+ */
+function classifyKantonalbankTransaction(buchungstext: string): {
+  type: string;
+  transferAccount: string | null;
+} {
+  const textLower = buchungstext.toLowerCase();
+
+  // ATM Withdrawal: Kantonalbank -> Cash account
+  // Patterns: "Bancomat-Bezug", "Bancomat-Einzahlung"
+  if (textLower.includes('bancomat')) {
+    return { type: 'atm', transferAccount: null };
+  }
+
+  return { type: 'expense', transferAccount: null };
+}
+
 function parseKantonalbankBuchungstext(buchungstext: string): {
   payee: string;
   notes: string;
@@ -1044,6 +1064,10 @@ async function parseKantonalbankXLSX(
     const refMatch = buchungstext.match(/Ref\.-Nr\.\s+(\d+)/);
     const importedId = refMatch ? `KBBL-${refMatch[1]}` : undefined;
 
+    // Classify transaction type (ATM withdrawal → transfer)
+    const { type: txnType, transferAccount } =
+      classifyKantonalbankTransaction(buchungstext);
+
     // Track saldo for balance verification
     if (saldo !== undefined) {
       // First saldo = balance AFTER first transaction, so start = saldo - amount
@@ -1060,6 +1084,8 @@ async function parseKantonalbankXLSX(
       imported_payee: payee || buchungstext.split('\n')[0]?.slice(0, 50) || '',
       notes: options.importNotes ? notes : '',
       ...(importedId && { imported_id: importedId }),
+      transaction_type: txnType,
+      transfer_account: transferAccount,
     });
   }
 

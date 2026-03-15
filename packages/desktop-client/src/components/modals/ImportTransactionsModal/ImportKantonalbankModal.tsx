@@ -36,10 +36,16 @@ import { useDispatch } from '@desktop-client/redux';
 
 type ImportSettings = {
   kantonalbank_account: string;
+  cash_account: string;
 };
 
 const DEFAULT_IMPORT_SETTINGS: ImportSettings = {
   kantonalbank_account: '',
+  cash_account: '',
+};
+
+type KantonalbankTransaction = ImportTransactionEntity & {
+  transaction_type?: string;
 };
 
 type ImportKantonalbankModalProps = {
@@ -135,6 +141,7 @@ export function ImportKantonalbankModal({
       const settings = await send('swiss-bank-get-import-settings');
       setImportSettings({
         kantonalbank_account: settings.kantonalbank_account || '',
+        cash_account: settings.cash_account || '',
       });
 
       // Find target account
@@ -311,7 +318,7 @@ export function ImportKantonalbankModal({
     setLoadingState('importing');
 
     // Build final transactions
-    const finalTransactions: ImportTransactionEntity[] = [];
+    const finalTransactions: KantonalbankTransaction[] = [];
 
     for (const trans of transactions) {
       if (trans.isMatchedTransaction || !trans.selected) {
@@ -339,6 +346,8 @@ export function ImportKantonalbankModal({
       const finalNotes = editedNotes !== undefined ? editedNotes : trans.notes;
 
       const forceAdd = trans.ignored && trans.selected;
+      const transactionType = (trans as { transaction_type?: string })
+        .transaction_type;
 
       finalTransactions.push({
         account: targetAccountId ?? '',
@@ -349,8 +358,9 @@ export function ImportKantonalbankModal({
         category: category_id,
         imported_payee: trans.imported_payee,
         payee_name: trans.payee_name,
+        transaction_type: transactionType,
         ...(forceAdd ? { forceAddTransaction: true } : {}),
-      } as ImportTransactionEntity);
+      } as KantonalbankTransaction);
     }
 
     // Collect payee mappings BEFORE closing
@@ -558,8 +568,8 @@ export function ImportKantonalbankModal({
                   style={{ marginBottom: 15, color: theme.pageTextSubdued }}
                 >
                   <Trans>
-                    Select the account where Kantonalbank transactions should be
-                    imported.
+                    Select the accounts for Kantonalbank import and ATM
+                    transfers.
                   </Trans>
                 </Text>
 
@@ -576,6 +586,32 @@ export function ImportKantonalbankModal({
                         setImportSettings({
                           ...importSettings,
                           kantonalbank_account: e,
+                        })
+                      }
+                      options={[
+                        ['', t('Select an account...')] as [string, string],
+                        ...accounts
+                          .filter(a => !a.closed)
+                          .map(a => [a.name, a.name] as [string, string]),
+                      ]}
+                      style={{ flex: 1 }}
+                    />
+                  </label>
+                </View>
+
+                <View style={{ marginBottom: 10 }}>
+                  <label
+                    style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+                  >
+                    <Text style={{ width: 180 }}>
+                      <Trans>Cash Account (ATM):</Trans>
+                    </Text>
+                    <Select
+                      value={importSettings.cash_account}
+                      onChange={(e: string) =>
+                        setImportSettings({
+                          ...importSettings,
+                          cash_account: e,
                         })
                       }
                       options={[

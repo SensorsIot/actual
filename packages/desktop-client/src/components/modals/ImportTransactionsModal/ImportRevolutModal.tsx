@@ -87,7 +87,8 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
     DEFAULT_IMPORT_SETTINGS,
   );
 
-  // Balance correction
+  // Balance correction (only needed for multi-currency imports)
+  const [isMultiCurrency, setIsMultiCurrency] = useState(false);
   const [currentRevolutTotal, setCurrentRevolutTotal] = useState<string>('');
   const [showCategoryPrompt, setShowCategoryPrompt] = useState(false);
   const [selectedDifferenzCategory, setSelectedDifferenzCategory] =
@@ -137,6 +138,11 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
         setLoadingState(null);
         return;
       }
+
+      // Check if file contains multiple currencies
+      const multiCurrency =
+        Array.isArray(metadata?.currencies) && metadata.currencies.length > 1;
+      setIsMultiCurrency(multiCurrency);
 
       // Load import settings
       const settings = await send('swiss-bank-get-import-settings');
@@ -356,8 +362,8 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
 
   // Import transactions
   async function onImport(close: () => void) {
-    // Validate: Require balance total
-    if (!currentRevolutTotal.trim()) {
+    // Validate: Require balance total (only for multi-currency imports)
+    if (isMultiCurrency && !currentRevolutTotal.trim()) {
       setError({
         parsed: true,
         message: t(
@@ -475,8 +481,8 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
       // Save payee mappings
       await savePayeeMappings();
 
-      // Balance correction
-      if (currentRevolutTotal) {
+      // Balance correction (only for multi-currency imports)
+      if (isMultiCurrency && currentRevolutTotal) {
         const cleanedTotal = currentRevolutTotal
           .replace(/'/g, '')
           .replace(',', '.');
@@ -717,7 +723,7 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
                     style={{ display: 'flex', alignItems: 'center', gap: 10 }}
                   >
                     <Text style={{ width: 150 }}>
-                      <Trans>Cash Account:</Trans>
+                      <Trans>Cash Account (ATM):</Trans>
                     </Text>
                     <Select
                       value={importSettings.cash_account}
@@ -864,8 +870,8 @@ export function ImportRevolutModal({ options }: ImportRevolutModalProps) {
               </View>
             )}
 
-            {/* Current Revolut Total Input */}
-            {!showSettingsDialog && !showCategoryPrompt && (
+            {/* Current Revolut Total Input (only for multi-currency imports) */}
+            {isMultiCurrency && !showSettingsDialog && !showCategoryPrompt && (
               <View style={{ marginTop: 10, marginBottom: 10 }}>
                 <SpaceBetween style={{ alignItems: 'center' }}>
                   <label
